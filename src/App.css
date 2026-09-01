@@ -95,7 +95,7 @@ button { color: inherit; }
 .custom-preset input { width: 52px; padding: 4px 5px; border: 1px solid var(--line); border-radius: 6px; outline: 0; background: var(--surface); color: var(--text); font-size: 10px; }
 .custom-preset span { color: var(--muted); font-size: 9px; }
 .custom-preset button { padding: 5px 8px; border: 0; border-radius: 6px; background: var(--accent); color: #102018; font-size: 9px; font-weight: 700; cursor: pointer; }
-.interval-tools { flex: 0 0 auto; display: flex; gap: 5px; margin-top: 8px; }
+.interval-tools { flex: 0 0 auto; display: flex; gap: 5px; margin: 8px 0 9px; }
 .interval-tools button { min-width: 30px; padding: 4px 7px; border: 1px solid var(--line); border-radius: 7px; background: transparent; color: var(--muted); font-size: 8px; cursor: pointer; }
 .interval-tools button:hover { border-color: rgba(var(--accent-rgb), .4); color: var(--text); }
 .controls { flex: 0 0 31px; display: flex; align-items: center; gap: 9px; margin-top: auto; }
