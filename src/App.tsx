@@ -25,7 +25,7 @@ type Completion = { phase: "deep" | SessionPhase; title: string; body: string };
 
 const isTauri = () => "__TAURI_INTERNALS__" in window;
 const appWindow = isTauri() ? getCurrentWindow() : null;
-const hudDimensions = { small: [230, 78], medium: [340, 286], large: [420, 350] } as const;
+const hudDimensions = { small: [280, 86], medium: [340, 286], large: [420, 400] } as const;
 const reliableNow = () => isTauri() ? invoke<number>("monotonic_millis") : Promise.resolve(performance.now());
 
 export default function App() {
@@ -40,6 +40,7 @@ export default function App() {
   const [customPresetOpen, setCustomPresetOpen] = useState(false);
   const [customMinutes, setCustomMinutes] = useState(settings.defaultDuration);
   const [shortcutError, setShortcutError] = useState("");
+  const [shortcutRecording, setShortcutRecording] = useState(false);
   const [clickThroughNotice, setClickThroughNotice] = useState(false);
   const [databaseError, setDatabaseError] = useState("");
   const lastTickRef = useRef(0);
@@ -270,13 +271,40 @@ export default function App() {
 
   useEffect(() => {
     if (!appWindow) return;
-    const compact = settings.displayMode === "compact";
-    const [width, height] = view === "hud" ? (compact ? hudDimensions.small : hudDimensions[settings.size]) : [view === "dashboard" ? 580 : 500, 740];
-    appWindow.setSize(new LogicalSize(width, height)).then(() => { if (view === "hud" && settings.position !== "custom") positionWindow(settings.position); }).catch(console.error);
-  }, [settings.displayMode, settings.size, settings.position, view]);
+    let cancelled = false;
+    const resize = async () => {
+      const compact = settings.displayMode === "compact";
+      const hudSize = completion && (compact || settings.size === "small") ? hudDimensions.medium : compact ? hudDimensions.small : hudDimensions[settings.size];
+      const desired = view === "hud" ? hudSize : [view === "dashboard" ? 580 : 500, 740] as const;
+      const monitor = await currentMonitor();
+      const workArea = monitor?.workArea.size.toLogical(monitor.scaleFactor);
+      const width = workArea ? Math.max(280, Math.min(desired[0], workArea.width - 16)) : desired[0];
+      const height = workArea ? Math.max(42, Math.min(desired[1], workArea.height - 16)) : desired[1];
+      if (cancelled) return;
+      await appWindow.setSize(new LogicalSize(Math.round(width), Math.round(height)));
+      if (!cancelled && view === "hud" && settings.position !== "custom") await positionWindow(settings.position);
+    };
+    resize().catch(console.error);
+    return () => { cancelled = true; };
+  }, [completion, settings.displayMode, settings.size, settings.position, view]);
+
+  useEffect(() => {
+    if (view === "hud") return;
+    const returnToHud = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setView("hud");
+    };
+    window.addEventListener("keydown", returnToHud);
+    return () => window.removeEventListener("keydown", returnToHud);
+  }, [view]);
 
   useEffect(() => {
     if (!appWindow) return;
+    if (shortcutRecording) {
+      unregisterAll().catch((error) => setShortcutError(String(error)));
+      return;
+    }
     const timer = window.setTimeout(async () => {
       const shortcuts = settings.shortcuts;
       const values = Object.values(shortcuts).map((value) => value.trim()).filter(Boolean);
@@ -295,7 +323,7 @@ export default function App() {
       } catch (error) { setShortcutError(String(error)); }
     }, 450);
     return () => { window.clearTimeout(timer); unregisterAll().catch(console.error); };
-  }, [settings.shortcuts]);
+  }, [settings.shortcuts, shortcutRecording]);
 
   useEffect(() => {
     if (!isTauri()) return;
@@ -340,6 +368,11 @@ export default function App() {
   };
 
   const changeSettings = (patch: Partial<Settings>) => setSettings((previous) => ({ ...previous, ...patch }));
+  const expandHud = () => setSettings((previous) => ({
+    ...previous,
+    displayMode: "full",
+    size: previous.size === "small" ? "medium" : previous.size,
+  }));
   const dragStart = () => changeSettings({ position: "custom" });
   const customRgb = hexToRgb(settings.customAccent);
   const shellStyle = {
@@ -365,19 +398,32 @@ export default function App() {
     onClose={() => setView("hud")}
     onDragStart={dragStart}
   /></main>;
-  if (view === "settings") return <main className="app-shell app-shell--settings" style={shellStyle}><SettingsPanel settings={settings} onChange={changeSettings} onClose={() => setView("hud")} onDragStart={dragStart} /></main>;
+  if (view === "settings") return <main className="app-shell app-shell--settings" style={shellStyle}><SettingsPanel settings={settings} onChange={changeSettings} onClose={() => setView("hud")} onDragStart={dragStart} onShortcutRecordingChange={setShortcutRecording} /></main>;
 
   const displayName = activePlan?.task || sessionName;
   const label = activePlan?.phase === "break" ? "RECOVERY BREAK" : activePlan ? "DEEP WORK" : state.mode === "stopwatch" ? "DEEP WORK" : "COUNTDOWN";
   const statusLabel = activePlan?.phase === "break" && state.status === "running" ? "RECHARGING" : state.status === "running" ? "WORKING" : state.status === "paused" ? "PAUSED" : state.status === "finished" ? "COMPLETE" : "READY";
 
-  const effectiveSize = settings.displayMode === "compact" ? "small" : settings.size;
+  const configuredSize = settings.displayMode === "compact" ? "small" : settings.size;
+  const effectiveSize = completion && configuredSize === "small" ? "medium" : configuredSize;
   return <main className={`app-shell size-${effectiveSize} display-${settings.displayMode}`} style={shellStyle}>
     <section className={`hud hud--${state.status} ${activePlan?.phase === "break" ? "hud--break" : ""}`}>
       <header className="hud__header" data-tauri-drag-region onMouseDown={dragStart}>
         <button className="brand" onClick={() => !activePlan && setState((previous) => initialTimerState(previous.mode === "stopwatch" ? "countdown" : "stopwatch", settings.defaultDuration))} title={activePlan ? label : "Switch timer mode"}><span className="status-dot" /><span>{label}</span></button>
         {activePlan?.kind === "pomodoro" && <span className="cycle-label">CYCLE {activePlan.cycle}</span>}
-        <span className={`status-label status-label--${state.status}`}>{statusLabel}</span>
+        <div className="hud__header-actions">
+          <span className={`status-label status-label--${state.status}`}>{statusLabel}</span>
+          <button
+            className="hud__minimize"
+            type="button"
+            title="Switch to compact HUD"
+            aria-label="Switch to compact HUD"
+            onMouseDown={(event) => event.stopPropagation()}
+            onClick={() => changeSettings({ displayMode: "compact" })}
+          >
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 8h8" /></svg>
+          </button>
+        </div>
       </header>
       <div className="hud__body">
         {activePlan ? <div className="active-intent"><span>{activePlan.project || "FOCUS SESSION"}</span><b>{displayName || "Deep Work"}</b></div> : <label className="session-field"><span className="sr-only">Session name</span><input value={sessionName} onChange={(event) => setSessionName(event.target.value)} maxLength={80} placeholder="What are you focusing on?" /></label>}
@@ -385,7 +431,7 @@ export default function App() {
         {!activePlan && <div className="presets" aria-label="Quick start presets">{[25, 50, 90, 120].map((minutes) => <button key={minutes} onClick={() => startPlan({ kind: "deep-work", workMinutes: minutes, breakMinutes: settings.pomodoroBreakMinutes, phase: "work", project: "", task: sessionName, startedAt: new Date().toISOString(), cycle: 1 })}>{minutes === 120 ? "2 hr" : `${minutes} min`}</button>)}<button onClick={() => setCustomPresetOpen((open) => !open)}>Custom</button></div>}
         {customPresetOpen && !activePlan && <form className="custom-preset" onSubmit={(event) => { event.preventDefault(); startPlan({ kind: "deep-work", workMinutes: Math.max(1, customMinutes), breakMinutes: settings.pomodoroBreakMinutes, phase: "work", project: "", task: sessionName, startedAt: new Date().toISOString(), cycle: 1 }); setCustomPresetOpen(false); }}><input aria-label="Custom duration in minutes" type="number" min="1" max="1440" value={customMinutes} onChange={(event) => setCustomMinutes(Number(event.target.value))} autoFocus /><span>min</span><button type="submit">Start</button></form>}
         {activePlan && <div className="interval-tools"><button onClick={() => adjustActiveTime(-5)} title="Remove five minutes">−5</button><button onClick={() => adjustActiveTime(5)} title="Add five minutes">+5</button>{activePlan.kind === "pomodoro" && <button onClick={skipInterval} title="Skip interval">Skip</button>}</div>}
-        <Controls status={state.status} activeSession={Boolean(activePlan)} onStartPause={handleStartPause} onReset={cancelOrReset} onNewSession={() => setView("launcher")} onDashboard={() => setView("dashboard")} onOpenSettings={() => setView("settings")} />
+        <Controls status={state.status} activeSession={Boolean(activePlan)} onStartPause={handleStartPause} onReset={cancelOrReset} onNewSession={() => setView("launcher")} onDashboard={() => setView("dashboard")} onOpenSettings={() => setView("settings")} onExpand={expandHud} />
       </div>
       {completion && <div className="completion-backdrop"><div className="completion-card"><span>{completion.phase === "break" ? "☕" : "✓"}</span><h2>{completion.title}</h2><p>{completion.body}</p><div>{completion.phase === "work" && <button className="primary-action" onClick={() => startPhase("break")}>Start break</button>}{completion.phase === "break" && <button className="primary-action" onClick={() => startPhase("work")}>Start focus</button>}{completion.phase === "deep" && <button className="primary-action" onClick={() => { setActivePlan(null); setCompletion(null); setState(initialTimerState(settings.defaultMode, settings.defaultDuration)); }}>Done</button>}{completion.phase !== "deep" && <button onClick={() => { setActivePlan(null); setCompletion(null); setState(initialTimerState(settings.defaultMode, settings.defaultDuration)); }}>Not now</button>}</div></div></div>}
       {clickThroughNotice && <div className="notice">Click-through on · Ctrl + Alt + C to disable</div>}

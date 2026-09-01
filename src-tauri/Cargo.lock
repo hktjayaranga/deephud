@@ -811,6 +811,7 @@ name = "deephud"
 version = "1.0.0"
 dependencies = [
  "chrono",
+ "gtk",
  "libc",
  "serde",
  "serde_json",

@@ -26,6 +26,7 @@ chrono = "0.4"
 sqlx = { version = "0.8", default-features = false, features = ["sqlite", "runtime-tokio"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
+gtk = "0.18"
 libc = "0.2"
 zbus = "5"
 

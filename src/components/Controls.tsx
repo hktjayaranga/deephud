@@ -8,9 +8,10 @@ interface ControlsProps {
   onNewSession: () => void;
   onDashboard: () => void;
   onOpenSettings: () => void;
+  onExpand: () => void;
 }
 
-type IconName = "play" | "pause" | "reset" | "settings" | "target" | "chart" | "close";
+type IconName = "play" | "pause" | "reset" | "settings" | "target" | "chart" | "close" | "expand";
 
 function Icon({ name }: { name: IconName }) {
   if (name === "play") return <svg viewBox="0 0 24 24"><path className="fill" d="m8 5 11 7-11 7Z" /></svg>;
@@ -19,10 +20,11 @@ function Icon({ name }: { name: IconName }) {
   if (name === "target") return <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><path d="M12 2v3M22 12h-3M12 22v-3M2 12h3"/></svg>;
   if (name === "chart") return <svg viewBox="0 0 24 24"><path d="M5 20V11M12 20V4M19 20v-6"/></svg>;
   if (name === "close") return <svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>;
+  if (name === "expand") return <svg viewBox="0 0 24 24"><path d="M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5"/></svg>;
   return <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3A1.7 1.7 0 0 0 10 3v-.2h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z" /></svg>;
 }
 
-export default function Controls({ status, activeSession, onStartPause, onReset, onNewSession, onDashboard, onOpenSettings }: ControlsProps) {
+export default function Controls({ status, activeSession, onStartPause, onReset, onNewSession, onDashboard, onOpenSettings, onExpand }: ControlsProps) {
   const primaryLabel = status === "running" ? "Pause" : "Start";
   const resetLabel = activeSession ? "End session" : "Reset";
   return <div className="controls">
@@ -31,5 +33,6 @@ export default function Controls({ status, activeSession, onStartPause, onReset,
     {!activeSession && <button className="control-focus" onClick={onNewSession} title="Start focus session" aria-label="Start focus session"><Icon name="target" /></button>}
     <button className="control-dashboard" onClick={onDashboard} title="Productivity dashboard" aria-label="Productivity dashboard"><Icon name="chart" /></button>
     <button className="control-settings" onClick={onOpenSettings} title="Settings" aria-label="Settings"><Icon name="settings" /></button>
+    <button className="control-expand" onClick={onExpand} title="Expand HUD" aria-label="Expand HUD and show all controls"><Icon name="expand" /></button>
   </div>;
 }

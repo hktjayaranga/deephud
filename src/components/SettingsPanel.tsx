@@ -1,10 +1,13 @@
+import { useEffect, useRef, useState } from "react";
 import { Accent, HudPosition, HudSize, Settings, ShortcutAction, Theme } from "../services/settings";
+import { captureShortcut, displayShortcut, shortcutIdentity } from "../services/shortcuts";
 
 interface SettingsPanelProps {
   settings: Settings;
   onChange: (patch: Partial<Settings>) => void;
   onClose: () => void;
   onDragStart: () => void;
+  onShortcutRecordingChange: (recording: boolean) => void;
 }
 
 const positions: { value: HudPosition; label: string }[] = [
@@ -17,7 +20,49 @@ const positions: { value: HudPosition; label: string }[] = [
   { value: "custom", label: "Custom / dragged" },
 ];
 
-export default function SettingsPanel({ settings, onChange, onClose, onDragStart }: SettingsPanelProps) {
+const shortcutLabels: Record<ShortcutAction, string> = {
+  startPause: "Start / Pause",
+  reset: "Reset",
+  showHide: "Show / Hide HUD",
+  clickThrough: "Toggle click-through",
+  startDeepWork: "Start Deep Work",
+};
+
+export default function SettingsPanel({ settings, onChange, onClose, onDragStart, onShortcutRecordingChange }: SettingsPanelProps) {
+  const [recordingShortcut, setRecordingShortcut] = useState<ShortcutAction | null>(null);
+  const [shortcutMessage, setShortcutMessage] = useState<{ action: ShortcutAction; text: string } | null>(null);
+
+  useEffect(() => () => onShortcutRecordingChange(false), [onShortcutRecordingChange]);
+
+  const startShortcutRecording = (action: ShortcutAction) => {
+    setRecordingShortcut(action);
+    setShortcutMessage(null);
+    onShortcutRecordingChange(true);
+  };
+
+  const stopShortcutRecording = () => {
+    setRecordingShortcut(null);
+    setShortcutMessage(null);
+    onShortcutRecordingChange(false);
+  };
+
+  const saveRecordedShortcut = (action: ShortcutAction, shortcut: string) => {
+    const identity = shortcutIdentity(shortcut);
+    const duplicate = (Object.entries(settings.shortcuts) as [ShortcutAction, string][])
+      .find(([otherAction, value]) => otherAction !== action && shortcutIdentity(value) === identity);
+    if (duplicate) {
+      setShortcutMessage({ action, text: `Already used by ${shortcutLabels[duplicate[0]]}. Choose another.` });
+      return;
+    }
+    onChange({ shortcuts: { ...settings.shortcuts, [action]: shortcut } });
+    stopShortcutRecording();
+  };
+
+  const clearShortcut = (action: ShortcutAction) => {
+    onChange({ shortcuts: { ...settings.shortcuts, [action]: "" } });
+    if (recordingShortcut === action) stopShortcutRecording();
+  };
+
   return (
     <section className="settings" aria-label="Settings">
       <header className="settings__header" data-tauri-drag-region onMouseDown={onDragStart}>
@@ -25,7 +70,7 @@ export default function SettingsPanel({ settings, onChange, onClose, onDragStart
           <span className="eyebrow">DEEPHUD</span>
           <h1>Settings</h1>
         </div>
-        <button className="icon-button" onClick={onClose} aria-label="Close settings">×</button>
+        <button className="icon-button" onClick={onClose} title="Back to timer" aria-label="Back to timer">←</button>
       </header>
 
       <div className="settings__content">
@@ -113,14 +158,27 @@ export default function SettingsPanel({ settings, onChange, onClose, onDragStart
         </SettingsGroup>
 
         <SettingsGroup title="Keyboard shortcuts">
-          <Shortcut label="Start / Pause" action="startPause" settings={settings} onChange={onChange} />
-          <Shortcut label="Reset" action="reset" settings={settings} onChange={onChange} />
-          <Shortcut label="Show / Hide HUD" action="showHide" settings={settings} onChange={onChange} />
-          <Shortcut label="Toggle click-through" action="clickThrough" settings={settings} onChange={onChange} />
-          <Shortcut label="Start Deep Work" action="startDeepWork" settings={settings} onChange={onChange} />
+          {(Object.entries(shortcutLabels) as [ShortcutAction, string][]).map(([action, label]) => (
+            <Shortcut
+              key={action}
+              label={label}
+              value={settings.shortcuts[action]}
+              recording={recordingShortcut === action}
+              message={shortcutMessage?.action === action ? shortcutMessage.text : ""}
+              onStart={() => startShortcutRecording(action)}
+              onCancel={stopShortcutRecording}
+              onSave={(shortcut) => saveRecordedShortcut(action, shortcut)}
+              onClear={() => clearShortcut(action)}
+              onMessage={(text) => setShortcutMessage({ action, text })}
+            />
+          ))}
         </SettingsGroup>
 
-        <div className="privacy-note"><span>⌂</span><div><b>Private by design</b><p>Your data stays on this computer. DeepHUD has no account, cloud sync, telemetry, or tracking.</p></div></div>
+        <p className="privacy-note"><span aria-hidden="true">🔒</span><strong>Private by design · Data stays on your device</strong></p>
+        <footer className="developer-credit" aria-label="Product information">
+          <strong>DeepHUD v1.0.0</strong>
+          <span>© 2026 Thilina Jayaranga</span>
+        </footer>
       </div>
     </section>
   );
@@ -135,13 +193,52 @@ function SettingRow({ label, value, stacked, children }: { label: string; value?
 }
 
 function Segmented<T extends string>({ values, value, onChange }: { values: T[]; value: T; onChange: (value: T) => void }) {
-  return <div className="segmented">{values.map((item) => <button key={item} className={value === item ? "is-active" : ""} onClick={() => onChange(item)}>{item}</button>)}</div>;
+  return <div className="segmented">{values.map((item) => <button type="button" key={item} className={value === item ? "is-active" : ""} aria-pressed={value === item} onClick={() => onChange(item)}>{item}</button>)}</div>;
 }
 
 function Toggle({ label, hint, checked, onChange }: { label: string; hint?: string; checked: boolean; onChange: (value: boolean) => void }) {
   return <label className="toggle-row"><span><b>{label}</b>{hint && <small>{hint}</small>}</span><input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} /><i /></label>;
 }
 
-function Shortcut({ label, action, settings, onChange }: { label: string; action: ShortcutAction; settings: Settings; onChange: (patch: Partial<Settings>) => void }) {
-  return <label className="shortcut"><span>{label}</span><input value={settings.shortcuts[action]} spellCheck={false} onChange={(event) => onChange({ shortcuts: { ...settings.shortcuts, [action]: event.target.value } })} /></label>;
+function Shortcut({ label, value, recording, message, onStart, onCancel, onSave, onClear, onMessage }: {
+  label: string;
+  value: string;
+  recording: boolean;
+  message: string;
+  onStart: () => void;
+  onCancel: () => void;
+  onSave: (shortcut: string) => void;
+  onClear: () => void;
+  onMessage: (message: string) => void;
+}) {
+  const recorderRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => { if (recording) recorderRef.current?.focus(); }, [recording]);
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.repeat) return;
+    const result = captureShortcut(event.nativeEvent);
+    if (result.status === "cancelled") onCancel();
+    else if (result.status === "captured") onSave(result.shortcut);
+    else onMessage(result.message);
+  };
+
+  return <div className={`shortcut ${recording ? "is-recording" : ""}`}>
+    <div className="shortcut__main">
+      <span className="shortcut__name">{label}</span>
+      {recording ? (
+        <button ref={recorderRef} type="button" className="shortcut__recorder" onKeyDown={handleKeyDown} onClick={() => recorderRef.current?.focus()}>
+          <span aria-hidden="true" /> Press shortcut… <small>Esc to cancel</small>
+        </button>
+      ) : (
+        <div className="shortcut__control">
+          <kbd className={!value ? "is-empty" : ""}>{displayShortcut(value)}</kbd>
+          <button type="button" onClick={onStart}>{value ? "Change" : "Record"}</button>
+          {value && <button type="button" className="shortcut__clear" onClick={onClear}>Clear</button>}
+        </div>
+      )}
+    </div>
+    {recording && message && <span className="shortcut__message" role="alert">{message}</span>}
+  </div>;
 }

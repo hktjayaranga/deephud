@@ -35,7 +35,7 @@ export default function Dashboard({ sessions, goalMinutes, onDelete, onUpdate, o
     <header className="workspace__header" data-tauri-drag-region onMouseDown={onDragStart}>
       <div><span className="eyebrow">YOUR FOCUS</span><h1>Productivity</h1></div>
       <div className="streak">🔥 {stats.streak} day streak</div>
-      <button className="icon-button" onClick={onClose} aria-label="Close">×</button>
+      <button className="icon-button" onClick={onClose} title="Back to timer" aria-label="Back to timer">←</button>
     </header>
     <nav className="dashboard-tabs">{(["overview", "history", "projects"] as Tab[]).map((item) => <button key={item} className={tab === item ? "is-active" : ""} onClick={() => setTab(item)}>{item}</button>)}</nav>
     <div className="workspace__content dashboard__content">

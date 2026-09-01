@@ -34,6 +34,18 @@ fn show_hud(app: &tauri::AppHandle) {
     }
 }
 
+#[cfg(target_os = "linux")]
+fn allow_compact_linux_window(window: &tauri::WebviewWindow) -> tauri::Result<()> {
+    use gtk::prelude::WidgetExt;
+
+    // WebKitGTK reports a tall natural minimum size even when the page itself
+    // is much shorter. Override that request so Tauri can apply the compact
+    // HUD height instead of GTK clamping the window near 200 pixels.
+    window.default_vbox()?.set_size_request(1, 1);
+    window.with_webview(|webview| webview.inner().set_size_request(1, 1))?;
+    Ok(())
+}
+
 #[tauri::command]
 fn system_idle_seconds() -> Result<u64, String> {
     platform::system_idle_seconds()
@@ -109,10 +121,19 @@ pub fn run() {
                 .add_migrations("sqlite:deepwork-hud.db", migrations)
                 .build(),
         )
-        // Remembers window position + size across launches, so the HUD
-        // reopens wherever the user last dragged it.
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        // Remember only the position. Restoring a saved size here races with
+        // the HUD's compact/full sizing and can overwrite the selected height.
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags(tauri_plugin_window_state::StateFlags::POSITION)
+                .build(),
+        )
         .setup(|app| {
+            #[cfg(target_os = "linux")]
+            if let Some(window) = app.get_webview_window("hud") {
+                allow_compact_linux_window(&window)?;
+            }
+
             let show = MenuItem::with_id(app, "show", "Show DeepHUD", true, None::<&str>)?;
             let toggle = MenuItem::with_id(app, "toggle", "Start / Pause", true, None::<&str>)?;
             let deep_work =

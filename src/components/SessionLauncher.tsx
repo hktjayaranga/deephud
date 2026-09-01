@@ -40,7 +40,7 @@ export default function SessionLauncher({ settings, projects, initialTask, onSta
   return <section className="workspace launcher">
     <header className="workspace__header" data-tauri-drag-region onMouseDown={onDragStart}>
       <div><span className="eyebrow">START FOCUSING</span><h1>New session</h1></div>
-      <button className="icon-button" onClick={onClose} aria-label="Close">×</button>
+      <button className="icon-button" onClick={onClose} title="Back to timer" aria-label="Back to timer">←</button>
     </header>
     <div className="workspace__content">
       <div className="mode-cards">
