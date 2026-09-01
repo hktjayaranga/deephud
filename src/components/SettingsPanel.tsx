@@ -1,0 +1,147 @@
+import { Accent, HudPosition, HudSize, Settings, ShortcutAction, Theme } from "../services/settings";
+
+interface SettingsPanelProps {
+  settings: Settings;
+  onChange: (patch: Partial<Settings>) => void;
+  onClose: () => void;
+  onDragStart: () => void;
+}
+
+const positions: { value: HudPosition; label: string }[] = [
+  { value: "top-left", label: "Top left" },
+  { value: "top-center", label: "Top center" },
+  { value: "top-right", label: "Top right" },
+  { value: "bottom-left", label: "Bottom left" },
+  { value: "bottom-center", label: "Bottom center" },
+  { value: "bottom-right", label: "Bottom right" },
+  { value: "custom", label: "Custom / dragged" },
+];
+
+export default function SettingsPanel({ settings, onChange, onClose, onDragStart }: SettingsPanelProps) {
+  return (
+    <section className="settings" aria-label="Settings">
+      <header className="settings__header" data-tauri-drag-region onMouseDown={onDragStart}>
+        <div>
+          <span className="eyebrow">DEEPHUD</span>
+          <h1>Settings</h1>
+        </div>
+        <button className="icon-button" onClick={onClose} aria-label="Close settings">×</button>
+      </header>
+
+      <div className="settings__content">
+        <SettingsGroup title="Appearance">
+          <SettingRow label="Theme">
+            <Segmented values={["dark", "light", "system"] as Theme[]} value={settings.theme} onChange={(theme) => onChange({ theme })} />
+          </SettingRow>
+          <SettingRow label="Accent">
+            <div className="accents">
+              {(["mint", "blue", "violet", "amber"] as Accent[]).map((accent) => (
+                <button key={accent} className={`accent accent--${accent} ${settings.accent === accent ? "is-active" : ""}`} onClick={() => onChange({ accent })} aria-label={`${accent} accent`} />
+              ))}
+              <label className={`accent accent--custom ${settings.accent === "custom" ? "is-active" : ""}`} style={{ background: settings.customAccent }} title="Custom accent"><input type="color" value={settings.customAccent} onChange={(event) => onChange({ accent: "custom", customAccent: event.target.value })} /></label>
+            </div>
+          </SettingRow>
+          <SettingRow label="Opacity" value={`${settings.opacity}%`} stacked>
+            <input className="range" type="range" min="45" max="100" value={settings.opacity} onChange={(event) => onChange({ opacity: Number(event.target.value) })} />
+          </SettingRow>
+          <SettingRow label="HUD size">
+            <Segmented values={["small", "medium", "large"] as HudSize[]} value={settings.size} onChange={(size) => onChange({ size })} />
+          </SettingRow>
+          <SettingRow label="Display mode">
+            <Segmented values={["compact", "full"] as Settings["displayMode"][]} value={settings.displayMode} onChange={(displayMode) => onChange({ displayMode })} />
+          </SettingRow>
+        </SettingsGroup>
+
+        <SettingsGroup title="HUD">
+          <SettingRow label="Position">
+            <select value={settings.position} onChange={(event) => onChange({ position: event.target.value as HudPosition })}>
+              {positions.map((position) => <option key={position.value} value={position.value}>{position.label}</option>)}
+            </select>
+          </SettingRow>
+          <Toggle label="Always on top" checked={settings.alwaysOnTop} onChange={(alwaysOnTop) => onChange({ alwaysOnTop })} />
+          <Toggle label="Corner snapping" hint="Snap near a screen corner after dragging" checked={settings.cornerSnapping} onChange={(cornerSnapping) => onChange({ cornerSnapping })} />
+          <Toggle label="Click-through mode" hint="Toggle back with Ctrl + Alt + C" checked={settings.clickThrough} onChange={(clickThrough) => onChange({ clickThrough })} />
+          <Toggle label="Start on system login" checked={settings.startOnLogin} onChange={(startOnLogin) => onChange({ startOnLogin })} />
+          <Toggle label="Close to system tray" hint="Use the tray menu to quit completely" checked={settings.closeToTray} onChange={(closeToTray) => onChange({ closeToTray })} />
+        </SettingsGroup>
+
+        <SettingsGroup title="Timer">
+          <SettingRow label="Default mode">
+            <select value={settings.defaultMode} onChange={(event) => onChange({ defaultMode: event.target.value as Settings["defaultMode"] })}>
+              <option value="stopwatch">Stopwatch</option>
+              <option value="countdown">Countdown</option>
+            </select>
+          </SettingRow>
+          <SettingRow label="Default duration" value="minutes">
+            <input className="number-input" type="number" min="1" max="1440" value={settings.defaultDuration} onChange={(event) => onChange({ defaultDuration: Math.max(1, Number(event.target.value)) })} />
+          </SettingRow>
+        </SettingsGroup>
+
+        <SettingsGroup title="Focus intervals">
+          <SettingRow label="Work / break" value="minutes">
+            <div className="paired-inputs"><input className="number-input" type="number" min="1" max="240" value={settings.pomodoroWorkMinutes} onChange={(event) => onChange({ pomodoroWorkMinutes: Math.max(1, Number(event.target.value)) })} /><span>/</span><input className="number-input" type="number" min="1" max="120" value={settings.pomodoroBreakMinutes} onChange={(event) => onChange({ pomodoroBreakMinutes: Math.max(1, Number(event.target.value)) })} /></div>
+          </SettingRow>
+          <Toggle label="Auto-start breaks" checked={settings.autoStartBreak} onChange={(autoStartBreak) => onChange({ autoStartBreak })} />
+          <Toggle label="Auto-start focus" checked={settings.autoStartWork} onChange={(autoStartWork) => onChange({ autoStartWork })} />
+        </SettingsGroup>
+
+        <SettingsGroup title="Alerts">
+          <Toggle label="Desktop notifications" hint="Completion, five-minute, and pause alerts" checked={settings.notifications} onChange={(notifications) => onChange({ notifications })} />
+          <Toggle label="Five-minute warning" checked={settings.fiveMinuteWarning} onChange={(fiveMinuteWarning) => onChange({ fiveMinuteWarning })} />
+          <Toggle label="Completion sound" checked={settings.sound} onChange={(sound) => onChange({ sound })} />
+          <SettingRow label="Volume" value={`${settings.volume}%`} stacked>
+            <input className="range" type="range" min="0" max="100" value={settings.volume} disabled={!settings.sound} onChange={(event) => onChange({ volume: Number(event.target.value) })} />
+          </SettingRow>
+        </SettingsGroup>
+
+        <SettingsGroup title="Focus policy">
+          <Toggle label="Track paused time" hint="Record interruptions separately from focused time" checked={settings.trackPausedTime} onChange={(trackPausedTime) => onChange({ trackPausedTime })} />
+          <Toggle label="Pause when computer is idle" hint={`Pause after ${settings.idleMinutes} minutes without input`} checked={settings.autoPauseIdle} onChange={(autoPauseIdle) => onChange({ autoPauseIdle })} />
+          <SettingRow label="When idle">
+            <select value={settings.idleBehavior} onChange={(event) => onChange({ idleBehavior: event.target.value as Settings["idleBehavior"] })}>
+              <option value="pause">Pause and wait</option>
+              <option value="exclude">Exclude idle time</option>
+              <option value="count">Keep counting</option>
+            </select>
+          </SettingRow>
+          <SettingRow label="Idle threshold" value="minutes">
+            <input className="number-input" type="number" min="1" max="60" value={settings.idleMinutes} onChange={(event) => onChange({ idleMinutes: Math.max(1, Number(event.target.value)) })} />
+          </SettingRow>
+          <SettingRow label="Daily focus goal" value="minutes">
+            <input className="number-input" type="number" min="15" max="1440" step="15" value={settings.dailyGoalMinutes} onChange={(event) => onChange({ dailyGoalMinutes: Math.max(15, Number(event.target.value)) })} />
+          </SettingRow>
+        </SettingsGroup>
+
+        <SettingsGroup title="Keyboard shortcuts">
+          <Shortcut label="Start / Pause" action="startPause" settings={settings} onChange={onChange} />
+          <Shortcut label="Reset" action="reset" settings={settings} onChange={onChange} />
+          <Shortcut label="Show / Hide HUD" action="showHide" settings={settings} onChange={onChange} />
+          <Shortcut label="Toggle click-through" action="clickThrough" settings={settings} onChange={onChange} />
+          <Shortcut label="Start Deep Work" action="startDeepWork" settings={settings} onChange={onChange} />
+        </SettingsGroup>
+
+        <div className="privacy-note"><span>⌂</span><div><b>Private by design</b><p>Your data stays on this computer. DeepHUD has no account, cloud sync, telemetry, or tracking.</p></div></div>
+      </div>
+    </section>
+  );
+}
+
+function SettingsGroup({ title, children }: { title: string; children: React.ReactNode }) {
+  return <div className="settings-group"><h2>{title}</h2><div className="settings-card">{children}</div></div>;
+}
+
+function SettingRow({ label, value, stacked, children }: { label: string; value?: string; stacked?: boolean; children: React.ReactNode }) {
+  return <div className={`setting-row ${stacked ? "setting-row--stacked" : ""}`}><div className="setting-label"><span>{label}</span>{value && <small>{value}</small>}</div>{children}</div>;
+}
+
+function Segmented<T extends string>({ values, value, onChange }: { values: T[]; value: T; onChange: (value: T) => void }) {
+  return <div className="segmented">{values.map((item) => <button key={item} className={value === item ? "is-active" : ""} onClick={() => onChange(item)}>{item}</button>)}</div>;
+}
+
+function Toggle({ label, hint, checked, onChange }: { label: string; hint?: string; checked: boolean; onChange: (value: boolean) => void }) {
+  return <label className="toggle-row"><span><b>{label}</b>{hint && <small>{hint}</small>}</span><input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} /><i /></label>;
+}
+
+function Shortcut({ label, action, settings, onChange }: { label: string; action: ShortcutAction; settings: Settings; onChange: (patch: Partial<Settings>) => void }) {
+  return <label className="shortcut"><span>{label}</span><input value={settings.shortcuts[action]} spellCheck={false} onChange={(event) => onChange({ shortcuts: { ...settings.shortcuts, [action]: event.target.value } })} /></label>;
+}

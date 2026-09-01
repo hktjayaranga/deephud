@@ -1,0 +1,149 @@
+# DeepHUD
+
+A minimal, privacy-first deep-work timer for Linux, Windows, and macOS. DeepHUD stays above
+your workspace, gets out of the way when asked, and turns completed focus into
+useful local statistics—without an account, cloud service, or telemetry.
+
+![DeepHUD Version 1.0](assets/deephud-v1.png)
+
+## Features
+
+- Floating transparent HUD with compact/full layouts and three sizes
+- Stopwatch, countdown, Deep Work, Pomodoro, and custom work/break intervals
+- Pause, resume, reset, skip, and ±5-minute adjustment
+- Themes, custom accent, opacity, always-on-top, snapping, and click-through
+- Projects, tasks, editable history, daily/weekly statistics, goals, and streaks
+- CSV/JSON export plus complete JSON backup and restore
+- Configurable global shortcuts and system-tray controls
+- Desktop notifications, sounds, warnings, and native idle handling
+- Start on login, close to tray, and native installers for all three desktop platforms
+- Offline-only SQLite storage with no tracking
+
+## Install a release
+
+Download the installer for your operating system from the GitHub release:
+
+- Linux x64: `.deb` or AppImage
+- Windows x64: NSIS setup `.exe` or `.msi`
+- macOS Apple Silicon: `aarch64.dmg`
+- macOS Intel: `x86_64.dmg`
+
+Every release also contains `SHA256SUMS` for verifying the downloads.
+
+Debian package:
+
+```bash
+sudo apt install './DeepHUD_1.0.0_amd64.deb'
+```
+
+AppImage:
+
+```bash
+chmod +x 'DeepHUD_1.0.0_amd64.AppImage'
+./DeepHUD_1.0.0_amd64.AppImage
+```
+
+The `.deb` installs the application icon and desktop entry. On Windows, run
+either installer and launch DeepHUD from the Start menu. On macOS, open the
+matching DMG and drag DeepHUD into Applications.
+
+## Build from source
+
+Install the prerequisites for your OS from the
+[Tauri prerequisites guide](https://v2.tauri.app/start/prerequisites/). On
+Ubuntu/Debian, the native packages are:
+
+```bash
+sudo apt update
+sudo apt install -y build-essential curl wget file libwebkit2gtk-4.1-dev \
+  libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev pkg-config
+```
+
+Install Rust stable and Node.js 20 or newer, then:
+
+```bash
+npm ci
+npm run tauri dev
+```
+
+Build the native packages for the current operating system:
+
+```bash
+npm run tauri build
+```
+
+Artifacts are written beneath `src-tauri/target/release/bundle/`.
+
+## Usage
+
+Use a quick-duration button on the HUD, or select the target button to prepare
+a Deep Work/Pomodoro session with a project and task. The chart button opens
+the productivity dashboard. The gear opens appearance, timer, integration,
+alert, idle, goal, and shortcut settings.
+
+Completed work intervals are recorded; breaks do not inflate focus totals. The
+History page can search, filter, edit, delete, export, back up, and restore data.
+
+### Default shortcuts
+
+| Action | Shortcut |
+| --- | --- |
+| Start / pause | `Ctrl+Alt+Space` |
+| Reset | `Ctrl+Alt+R` |
+| Show / hide HUD | `Ctrl+Alt+H` |
+| Toggle click-through | `Ctrl+Alt+C` |
+| Start default Deep Work | `Ctrl+Alt+S` |
+
+Every shortcut can be changed in Settings. If a combination is already owned
+by the desktop or another application, DeepHUD reports it as unavailable.
+
+## Data and privacy
+
+Focus history is stored locally in the operating system's application config
+directory. Common locations are:
+
+```text
+Linux:   ~/.config/com.deepworkhud.app/deepwork-hud.db
+Windows: %APPDATA%\com.deepworkhud.app\deepwork-hud.db
+macOS:   ~/Library/Application Support/com.deepworkhud.desktop/deepwork-hud.db
+```
+
+There is no application network client, account, telemetry, cloud sync, or
+automatic surveillance. See [the privacy document](docs/PRIVACY.md).
+
+## Test
+
+```bash
+npm test
+npm run build
+cd src-tauri
+cargo fmt --check
+cargo check
+```
+
+See [desktop release testing](docs/TESTING.md), the
+[release guide](docs/RELEASING.md), and [Ubuntu/Wayland notes](docs/UBUNTU.md).
+
+## Project structure
+
+```text
+deepwork-hud/
+├── .github/workflows/       # CI and tagged GitHub releases
+├── docs/                    # privacy, compatibility, and testing
+├── src/                     # React UI and application services
+├── src-tauri/               # Tauri/Rust backend and package metadata
+├── tests/                   # unit and integration tests
+├── CHANGELOG.md
+├── CONTRIBUTING.md
+├── LICENSE
+├── SECURITY.md
+└── README.md
+```
+
+## Scope
+
+Version 1.0 deliberately excludes accounts, cloud synchronization, mobile apps,
+social/team features, website surveillance, and AI coaching. The application is
+designed to help you focus—not become another service to manage.
+
+Licensed under the [MIT License](LICENSE).

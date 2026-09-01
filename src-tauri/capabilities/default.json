@@ -1,0 +1,32 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Capabilities for the main HUD window",
+  "windows": ["hud"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-set-position",
+    "core:window:allow-set-size",
+    "core:window:allow-set-always-on-top",
+    "core:window:allow-set-ignore-cursor-events",
+    "core:window:allow-is-visible",
+    "core:window:allow-hide",
+    "core:window:allow-show",
+    "core:window:allow-outer-size",
+    "core:window:allow-current-monitor",
+    "global-shortcut:allow-register",
+    "global-shortcut:allow-unregister-all",
+    "notification:default",
+    "autostart:allow-enable",
+    "autostart:allow-disable",
+    "autostart:allow-is-enabled",
+    "dialog:allow-open",
+    "dialog:allow-save",
+    "dialog:allow-confirm",
+    "fs:allow-read-text-file",
+    "fs:allow-stat",
+    "fs:allow-write-text-file",
+    "window-state:default"
+  ]
+}
