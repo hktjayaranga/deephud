@@ -51,7 +51,7 @@
     --track-bg:rgba(255,255,255,0.08);
     --control-dot:rgba(255,255,255,0.18);
     --hero-glow:rgba(79,209,181,0.10);
-    --hud-blue:#5B8DEF;
+    --hud-blue:var(--accent);
     --radius:10px;
     --font-head:'Space Grotesk', sans-serif;
     --font-body:'Inter', sans-serif;
@@ -205,12 +205,12 @@
 
   .hud-presets{display:flex;gap:6px;margin-bottom:18px;flex-wrap:wrap;justify-content:center;}
   .hud-presets span{font-family:var(--font-mono);font-size:0.66rem;color:var(--text-muted);background:var(--track-bg);padding:6px 9px;border-radius:8px;cursor:pointer;user-select:none;border:1px solid transparent;}
-  .hud-presets span.active{background:var(--hud-blue);color:#fff;}
+  .hud-presets span.active{background:var(--hud-blue);color:var(--accent-contrast);}
 
   .hud-controls-row{display:flex;align-items:center;justify-content:center;gap:9px;}
   .ctrl{width:36px;height:36px;border-radius:50%;border:1px solid var(--panel-border);background:var(--track-bg);display:flex;align-items:center;justify-content:center;color:var(--text-muted);padding:0;cursor:pointer;}
   .ctrl svg{width:15px;height:15px;}
-  .ctrl.play{background:var(--hud-blue);border-color:transparent;color:#fff;}
+  .ctrl.play{background:var(--hud-blue);border-color:transparent;color:var(--accent-contrast);}
 
   @keyframes hudpulse{0%,100%{opacity:1;}50%{opacity:.35;}}
   @keyframes hudblink{50%{opacity:.25;}}
