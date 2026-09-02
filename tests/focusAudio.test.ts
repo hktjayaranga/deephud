@@ -1,8 +1,12 @@
-import { beforeEach, describe, expect, it } from "vitest";
-import { FOCUS_AUDIO_PREFERENCE_KEY, RECORDED_FOCUS_PRESETS, isSupportedRecording, loadFocusAudioPreference, saveFocusAudioPreference, saveFocusAudioVolume } from "../src/services/focusAudio";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { FOCUS_AUDIO_PREFERENCE_KEY, RECORDED_FOCUS_PRESETS, isSupportedRecording, loadFocusAudioPreference, resolveFocusAudio, saveFocusAudioPreference, saveFocusAudioVolume } from "../src/services/focusAudio";
 
 describe("focus audio recordings", () => {
   beforeEach(() => localStorage.removeItem(FOCUS_AUDIO_PREFERENCE_KEY));
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
 
   it("accepts the supported local recording formats case-insensitively", () => {
     expect(isSupportedRecording("rain.WAV")).toBe(true);
@@ -35,5 +39,30 @@ describe("focus audio recordings", () => {
     const standaloneTimerPreference = loadFocusAudioPreference();
     expect(intervalPreference).toEqual(deepWorkPreference);
     expect(standaloneTimerPreference).toEqual(deepWorkPreference);
+  });
+
+  it("converts bundled recordings to blob URLs for packaged WebKit playback", async () => {
+    const recording = new Blob(["recording"], { type: "audio/ogg" });
+    const fetchRecording = vi.fn().mockResolvedValue(new Response(recording, { status: 200 }));
+    const createObjectURL = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:bundled-recording");
+    vi.stubGlobal("fetch", fetchRecording);
+
+    await expect(resolveFocusAudio(RECORDED_FOCUS_PRESETS[0])).resolves.toEqual({
+      url: "blob:bundled-recording",
+      revoke: true,
+    });
+    expect(fetchRecording).toHaveBeenCalledWith("/audio/rain.ogg");
+    expect(createObjectURL).toHaveBeenCalledWith(recording);
+  });
+
+  it("keeps browser-selected object URLs without fetching them", async () => {
+    const fetchRecording = vi.fn();
+    vi.stubGlobal("fetch", fetchRecording);
+
+    await expect(resolveFocusAudio({ name: "local.ogg", source: "blob:local-recording", temporary: true })).resolves.toEqual({
+      url: "blob:local-recording",
+      revoke: true,
+    });
+    expect(fetchRecording).not.toHaveBeenCalled();
   });
 });

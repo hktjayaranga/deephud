@@ -190,8 +190,10 @@ export default function App() {
     let cancelled = false;
 
     audio.pause();
-    audio.removeAttribute("src");
-    audio.load();
+    if (audio.hasAttribute("src")) {
+      audio.removeAttribute("src");
+      audio.load();
+    }
     if (focusAudioUrlRef.current) URL.revokeObjectURL(focusAudioUrlRef.current);
     focusAudioUrlRef.current = "";
     setFocusAudioError("");

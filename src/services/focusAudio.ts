@@ -56,7 +56,15 @@ export function isSupportedRecording(name: string) {
 }
 
 export async function resolveFocusAudio(track: FocusAudioTrack): Promise<{ url: string; revoke: boolean }> {
-  if (track.source) return { url: track.source, revoke: Boolean(track.temporary) };
+  if (track.source) {
+    if (track.temporary) return { url: track.source, revoke: true };
+    // WebKitGTK's media pipeline cannot consume Tauri's production custom
+    // protocol directly. Fetch bundled recordings through the webview and
+    // expose them to HTMLMediaElement through its supported blob protocol.
+    const response = await fetch(track.source);
+    if (!response.ok) throw new Error(`Bundled recording could not be loaded (${response.status}).`);
+    return { url: URL.createObjectURL(await response.blob()), revoke: true };
+  }
   if (!track.path) throw new Error("This recording is no longer available. Choose it again.");
   return { url: convertFileSrc(track.path), revoke: false };
 }
