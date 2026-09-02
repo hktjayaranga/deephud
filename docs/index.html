@@ -177,38 +177,39 @@
     pointer-events:none;
   }
   .hud{
-    position:absolute;top:6px;left:6%;width:302px;
+    position:absolute;top:6px;left:6%;width:330px;overflow:hidden;
     background:var(--panel-bg);border:1px solid var(--panel-border);
-    border-radius:22px;padding:20px 22px 22px;
+    border-radius:22px;padding:0;
     backdrop-filter:blur(14px);
     box-shadow:0 20px 50px -20px rgba(0,0,0,0.35);
   }
-  .hud-top{display:flex;align-items:center;justify-content:space-between;}
-  .hud-label{display:flex;align-items:center;gap:8px;font-family:var(--font-head);font-weight:600;font-size:0.8rem;letter-spacing:.02em;color:var(--text);}
-  .hud-label .dot{width:7px;height:7px;border-radius:50%;background:var(--hud-blue);animation:hudpulse 2.2s ease-in-out infinite;}
+  .hud-top{height:59px;display:flex;align-items:center;justify-content:space-between;padding:0 20px;border-bottom:1px solid var(--panel-border);}
+  .hud-label{display:flex;align-items:center;gap:10px;font-family:var(--font-head);font-weight:600;font-size:0.75rem;letter-spacing:.18em;color:var(--text);}
+  .hud-label .dot{width:8px;height:8px;border-radius:50%;background:var(--text-faint);}
+  .hud.is-running .hud-label .dot{background:var(--hud-blue);animation:hudpulse 2.2s ease-in-out infinite;}
   .hud-top-right{display:flex;align-items:center;gap:8px;}
-  .hud-badge{font-family:var(--font-mono);font-size:0.6rem;letter-spacing:.04em;color:var(--text-muted);background:var(--track-bg);padding:4px 10px;border-radius:999px;}
-  .hud-min{width:22px;height:22px;border-radius:50%;background:var(--track-bg);border:none;color:var(--text-muted);font-size:0.85rem;line-height:1;display:flex;align-items:center;justify-content:center;padding:0;}
+  .hud-badge{font-family:var(--font-mono);font-size:0.58rem;font-weight:500;letter-spacing:.12em;color:var(--text-muted);background:var(--track-bg);padding:5px 10px;border-radius:999px;}
+  .hud-min{width:30px;height:30px;border-radius:10px;background:var(--track-bg);border:none;color:var(--text-muted);font-size:1rem;line-height:1;display:flex;align-items:center;justify-content:center;padding:0;}
 
-  .hud-prompt{margin:18px 0 6px;text-align:center;font-size:0.78rem;color:var(--text-faint);}
+  .hud-prompt{margin:20px 20px 4px;text-align:center;font-size:0.78rem;color:var(--text-faint);}
 
   .hud-clock{
     position:relative;display:flex;align-items:center;justify-content:center;
-    margin:6px 0 18px;font-family:var(--font-head);font-weight:700;
-    font-size:3.1rem;letter-spacing:0.06em;color:var(--text);font-variant-numeric:tabular-nums;
+    margin:4px 20px 14px;font-family:var(--font-mono);font-weight:600;line-height:1.05;
+    font-size:3.1rem;letter-spacing:-0.08em;color:var(--text);font-variant-numeric:tabular-nums;
   }
-  .hud-clock .colon{animation:hudblink 1.6s steps(1) infinite;margin:0 2px;}
+  .hud-clock .colon{animation:hudblink 1.6s steps(1) infinite;margin:0 5px;}
 
-  .hud-slider{position:relative;height:3px;border-radius:2px;background:var(--track-bg);margin-bottom:18px;}
-  .hud-slider i{position:absolute;left:0;top:0;height:100%;width:9%;background:var(--hud-blue);border-radius:2px;}
-  .hud-slider .handle{position:absolute;left:9%;top:50%;transform:translate(-50%,-50%);width:10px;height:10px;border-radius:50%;background:var(--hud-blue);}
+  .hud-slider{position:relative;height:3px;border-radius:2px;background:var(--track-bg);margin:0 22px 14px;}
+  .hud-slider i{position:absolute;left:0;top:0;height:100%;width:0;background:var(--hud-blue);border-radius:2px;}
+  .hud-slider .handle{display:none;}
 
-  .hud-presets{display:flex;gap:6px;margin-bottom:18px;flex-wrap:wrap;justify-content:center;}
-  .hud-presets span{font-family:var(--font-mono);font-size:0.66rem;color:var(--text-muted);background:var(--track-bg);padding:6px 9px;border-radius:8px;cursor:pointer;user-select:none;border:1px solid transparent;}
-  .hud-presets span.active{background:var(--hud-blue);color:var(--accent-contrast);}
+  .hud-presets{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin:0 20px 12px;}
+  .hud-presets span{overflow:hidden;font-family:var(--font-body);font-size:0.68rem;color:var(--text-muted);background:transparent;padding:5px 6px;border-radius:8px;cursor:pointer;user-select:none;border:1px solid var(--panel-border);text-align:center;white-space:nowrap;}
+  .hud-presets span.active{border-color:var(--hud-blue);background:var(--accent-soft);color:var(--accent-dim);}
 
-  .hud-controls-row{display:flex;align-items:center;justify-content:center;gap:9px;}
-  .ctrl{width:36px;height:36px;border-radius:50%;border:1px solid var(--panel-border);background:var(--track-bg);display:flex;align-items:center;justify-content:center;color:var(--text-muted);padding:0;cursor:pointer;}
+  .hud-controls-row{display:flex;align-items:center;justify-content:center;gap:9px;margin:0 20px 18px;}
+  .ctrl{width:38px;height:38px;flex:none;border-radius:10px;border:1px solid transparent;background:var(--track-bg);display:flex;align-items:center;justify-content:center;color:var(--text-muted);padding:0;cursor:pointer;}
   .ctrl svg{width:15px;height:15px;}
   .ctrl.play{background:var(--hud-blue);border-color:transparent;color:var(--accent-contrast);}
 
@@ -392,7 +393,7 @@
     </div>
 
     <div class="hud-stage" aria-hidden="true">
-      <div class="hud">
+      <div class="hud" id="heroHud">
         <div class="hud-top">
           <span class="hud-label"><span class="dot"></span>DEEP WORK</span>
           <span class="hud-top-right">
@@ -406,12 +407,13 @@
         </div>
         <div class="hud-slider"><i id="hudFill"></i><span class="handle" id="hudHandle"></span></div>
         <div class="hud-presets">
-          <span class="active" data-min="25">25 min</span><span data-min="50">50 min</span><span data-min="90">90 min</span><span data-min="120">2 hr</span><span data-min="">Custom</span>
+          <span data-min="25">25 min</span><span data-min="50">50 min</span><span data-min="90">90 min</span><span data-min="120">2 hr</span><span data-min="">Custom</span>
         </div>
         <div class="hud-controls-row">
           <button class="ctrl play" id="hudPlay"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M4 2.5v11l9-5.5-9-5.5Z"/></svg></button>
           <button class="ctrl" id="hudReset"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13 8A5 5 0 1 1 8 3" stroke-linecap="round"/><path d="M13 3v3.5H9.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
           <button class="ctrl" tabindex="-1"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="5.5"/><circle cx="8" cy="8" r="1.4" fill="currentColor" stroke="none"/></svg></button>
+          <button class="ctrl" tabindex="-1"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 10V7a5 5 0 0 1 10 0v3"/><path d="M4 9H3a1.5 1.5 0 0 0-1.5 1.5v2A1.5 1.5 0 0 0 3 14h1Zm8 0h1a1.5 1.5 0 0 1 1.5 1.5v2A1.5 1.5 0 0 1 13 14h-1Z"/></svg></button>
           <button class="ctrl" tabindex="-1"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 13V8M8 13V3M13 13V9.5" stroke-linecap="round"/></svg></button>
           <button class="ctrl" tabindex="-1"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="2.2"/><path d="M8 2v1.4M8 12.6V14M14 8h-1.4M3.4 8H2M12.2 3.8l-1 1M4.8 11.2l-1 1M12.2 12.2l-1-1M4.8 4.8l-1-1" stroke-linecap="round"/></svg></button>
         </div>
@@ -535,6 +537,13 @@
         </div>
       </div>
       <div class="detail-row">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 14v-4a8 8 0 0 1 16 0v4" stroke-linecap="round"/><path d="M6 13H4a2 2 0 0 0-2 2v3a2 2 0 0 0 2 2h2Zm12 0h2a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2h-2Z" stroke-linejoin="round"/></svg>
+        <div>
+          <h3>Recorded focus audio</h3>
+          <p>Preview and loop real rain, forest or calm-waterfall recordings—or choose a local audio file. The global HUD control works with every timer, lets you switch or mute audio while running, remembers your sound and volume, pauses with the timer, and stops immediately when you select Silence.</p>
+        </div>
+      </div>
+      <div class="detail-row">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M18 8a6 6 0 0 0-12 0c0 4-2 5-2 6h16c0-1-2-2-2-6Z" stroke-linejoin="round"/><path d="M10 19a2 2 0 0 0 4 0" stroke-linecap="round"/></svg>
         <div>
           <h3>Focus notifications</h3>
@@ -612,6 +621,7 @@
         <li><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 8.5 6.5 12 13 4" stroke-linecap="round" stroke-linejoin="round"/></svg>No telemetry or usage analytics</li>
         <li><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 8.5 6.5 12 13 4" stroke-linecap="round" stroke-linejoin="round"/></svg>No cloud sync, no network client</li>
         <li><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 8.5 6.5 12 13 4" stroke-linecap="round" stroke-linejoin="round"/></svg>Local SQLite database, always yours</li>
+        <li><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 8.5 6.5 12 13 4" stroke-linecap="round" stroke-linejoin="round"/></svg>Recorded focus audio stays on your device</li>
       </ul>
     </div>
   </div>
@@ -686,8 +696,9 @@
     });
   })();
 
-  // Hero HUD demo — a real, working countdown
+  // Hero HUD demo — stopwatch by default, countdown after choosing a preset
   (function(){
+    var hud = document.getElementById('heroHud');
     var minEl = document.getElementById('hudMin');
     var secEl = document.getElementById('hudSec');
     var fill = document.getElementById('hudFill');
@@ -701,13 +712,19 @@
     var playIcon = '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M4 2.5v11l9-5.5-9-5.5Z"/></svg>';
     var pauseIcon = '<svg viewBox="0 0 16 16" fill="currentColor"><rect x="3.5" y="2.5" width="3" height="11" rx="1.2"/><rect x="9.5" y="2.5" width="3" height="11" rx="1.2"/></svg>';
 
-    var total = 25*60, remaining = total, timerId = null, running = false;
+    var mode = 'stopwatch';
+    var elapsed = 0;
+    var total = 0;
+    var remaining = 0;
+    var timerId = null;
+    var running = false;
 
     function render(){
-      var m = Math.floor(remaining/60), s = remaining%60;
+      var displayedSeconds = mode === 'stopwatch' ? elapsed : remaining;
+      var m = Math.floor(displayedSeconds/60), s = displayedSeconds%60;
       minEl.textContent = (m<10?'0':'')+m;
       secEl.textContent = (s<10?'0':'')+s;
-      var pct = total ? ((total-remaining)/total*100) : 0;
+      var pct = mode === 'countdown' && total ? ((total-remaining)/total*100) : 0;
       fill.style.width = pct+'%';
       handle.style.left = pct+'%';
     }
@@ -715,30 +732,30 @@
     function pause(status){
       running = false;
       if(timerId){ clearInterval(timerId); timerId = null; }
+      if(hud) hud.classList.remove('is-running');
       playBtn.innerHTML = playIcon;
       if(badge) badge.textContent = status || 'READY';
     }
 
     function start(){
-      if(remaining<=0) return;
+      if(mode === 'countdown' && remaining<=0) return;
       running = true;
+      if(hud) hud.classList.add('is-running');
       playBtn.innerHTML = pauseIcon;
       if(badge) badge.textContent = 'WORKING';
       timerId = setInterval(function(){
-        remaining = Math.max(0, remaining - 1);
+        if(mode === 'stopwatch'){
+          elapsed += 1;
+        }else{
+          remaining = Math.max(0, remaining - 1);
+        }
         render();
-        if(remaining<=0){ onComplete(); }
+        if(mode === 'countdown' && remaining<=0){ onComplete(); }
       }, 1000);
     }
 
     function onComplete(){
       pause('DONE');
-      // Loop the demo automatically after a short beat.
-      setTimeout(function(){
-        remaining = total;
-        render();
-        start();
-      }, 1400);
     }
 
     playBtn.addEventListener('click', function(){
@@ -747,7 +764,11 @@
 
     resetBtn.addEventListener('click', function(){
       pause('READY');
-      remaining = total;
+      mode = 'stopwatch';
+      elapsed = 0;
+      total = 0;
+      remaining = 0;
+      presets.forEach(function(x){ x.classList.remove('active'); });
       render();
     });
 
@@ -758,17 +779,21 @@
         presets.forEach(function(x){ x.classList.remove('active'); });
         p.classList.add('active');
         pause('READY');
+        mode = 'countdown';
+        elapsed = 0;
         total = mins*60;
         remaining = total;
         render();
+        start();
       });
     });
 
     render();
 
-    // Runs on its own as an ambient hero demo — no click needed.
-    var reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    if(!reduced){ start(); }
+    // Let the HUD demonstrate itself without requiring the visitor to interact.
+    if(!window.matchMedia('(prefers-reduced-motion: reduce)').matches){
+      setTimeout(start, 600);
+    }
   })();
 </script>
 

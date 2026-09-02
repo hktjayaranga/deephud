@@ -4,7 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { LogicalPosition, LogicalSize, PhysicalPosition } from "@tauri-apps/api/dpi";
 import { currentMonitor, getCurrentWindow } from "@tauri-apps/api/window";
 import { disable as disableAutostart, enable as enableAutostart, isEnabled as isAutostartEnabled } from "@tauri-apps/plugin-autostart";
-import { confirm } from "@tauri-apps/plugin-dialog";
+import { confirm, open } from "@tauri-apps/plugin-dialog";
 import { register, unregisterAll } from "@tauri-apps/plugin-global-shortcut";
 import Timer from "./components/Timer";
 import Controls from "./components/Controls";
@@ -13,8 +13,9 @@ import SessionLauncher from "./components/SessionLauncher";
 import SettingsPanel from "./components/SettingsPanel";
 import { ProjectRecord, SessionRecord, deleteSession, ensureProjectTask, getProjects, getSessions, initializeDatabase, replaceSessions, saveSession, updateSession } from "./services/database";
 import { createBackup, exportSessions, selectBackup } from "./services/dataTransfer";
+import { FOCUS_AUDIO_EXTENSIONS, RECORDED_FOCUS_PRESETS, isSupportedRecording, loadFocusAudioPreference, resolveFocusAudio, saveFocusAudioPreference, saveFocusAudioVolume } from "./services/focusAudio";
 import { playChime, notify } from "./services/notifications";
-import { SessionPhase, SessionPlan } from "./services/session";
+import { FocusAudioPlan, FocusAudioTrack, SessionPhase, SessionPlan } from "./services/session";
 import { TimerState, initialTimerState } from "./services/timer";
 import { adjustedTarget, advanceElapsed, hasFinished } from "./services/timerMath";
 import { HudPosition, Settings, loadSettings, saveSettings } from "./services/settings";
@@ -49,7 +50,24 @@ export default function App() {
   const completionKeyRef = useRef("");
   const warningKeyRef = useRef("");
   const idlePausedRef = useRef(false);
+  const focusAudioRef = useRef<HTMLAudioElement | null>(null);
+  const focusAudioUrlRef = useRef("");
+  const focusAudioShouldPlayRef = useRef(false);
+  const [focusAudioMuted, setFocusAudioMuted] = useState(false);
+  const [focusAudioVolume, setFocusAudioVolume] = useState(() => loadFocusAudioPreference().volume);
+  const [focusAudioError, setFocusAudioError] = useState("");
+  const [focusAudioPreviewing, setFocusAudioPreviewing] = useState(false);
+  const [standaloneFocusAudio, setStandaloneFocusAudio] = useState<FocusAudioPlan | null>(() => {
+    const preference = loadFocusAudioPreference();
+    return preference.track ? { track: preference.track, volume: preference.volume, pauseWithTimer: true } : null;
+  });
+  const [hudPopover, setHudPopover] = useState<"audio" | "more" | null>(null);
+  const activeAudioFileRef = useRef<HTMLInputElement>(null);
   const actionsRef = useRef({ startPause: () => {}, reset: () => {}, clickThrough: () => {}, startDeepWork: () => {}, dashboard: () => {} });
+  const effectiveFocusAudio = activePlan ? activePlan.focusAudio : standaloneFocusAudio;
+  const effectiveFocusPhase: SessionPhase = activePlan?.phase ?? "work";
+  const focusAudioSessionPlaying = Boolean(effectiveFocusAudio && effectiveFocusPhase === "work" && (state.status === "running" || (!effectiveFocusAudio.pauseWithTimer && state.status === "paused")));
+  const focusAudioIsPlaying = Boolean(effectiveFocusAudio && (focusAudioSessionPlaying || focusAudioPreviewing) && !focusAudioMuted && focusAudioVolume > 0);
 
   const refreshSessions = useCallback(async () => {
     try {
@@ -101,7 +119,92 @@ export default function App() {
 
   useEffect(() => { localStorage.setItem("deepwork-hud:session", sessionName); }, [sessionName]);
 
+  useEffect(() => {
+    const track = effectiveFocusAudio?.track;
+    const audio = focusAudioRef.current ?? new Audio();
+    focusAudioRef.current = audio;
+    audio.loop = true;
+    let cancelled = false;
+
+    audio.pause();
+    audio.removeAttribute("src");
+    audio.load();
+    if (focusAudioUrlRef.current) URL.revokeObjectURL(focusAudioUrlRef.current);
+    focusAudioUrlRef.current = "";
+    setFocusAudioError("");
+    if (!track) return;
+
+    resolveFocusAudio(track).then(({ url, revoke }) => {
+      if (cancelled) {
+        if (revoke) URL.revokeObjectURL(url);
+        return;
+      }
+      focusAudioUrlRef.current = revoke ? url : "";
+      audio.src = url;
+      audio.load();
+      if (focusAudioShouldPlayRef.current) audio.play().catch(() => setFocusAudioError("Select the audio control to start this recording."));
+    }).catch((error) => setFocusAudioError(String(error)));
+
+    return () => { cancelled = true; };
+  }, [effectiveFocusAudio?.track.path, effectiveFocusAudio?.track.source]);
+
+  useEffect(() => {
+    const audio = focusAudioRef.current;
+    const configured = effectiveFocusAudio;
+    const shouldPlay = Boolean(configured && effectiveFocusPhase === "work" && (focusAudioPreviewing || state.status === "running" || (!configured.pauseWithTimer && state.status === "paused")));
+    focusAudioShouldPlayRef.current = shouldPlay;
+    if (!audio || !configured) return;
+    audio.volume = Math.max(0, Math.min(1, focusAudioVolume / 100));
+    audio.muted = focusAudioMuted;
+    if (shouldPlay && audio.src) audio.play().catch(() => setFocusAudioError("Select the audio control to start this recording."));
+    else audio.pause();
+  }, [effectiveFocusAudio, effectiveFocusPhase, focusAudioMuted, focusAudioPreviewing, focusAudioVolume, state.status]);
+
+  useEffect(() => {
+    if (!focusAudioPreviewing) return;
+    if (state.status === "running" || hudPopover !== "audio") {
+      setFocusAudioPreviewing(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setFocusAudioPreviewing(false), 8_000);
+    return () => window.clearTimeout(timer);
+  }, [effectiveFocusAudio?.track.path, effectiveFocusAudio?.track.source, focusAudioPreviewing, hudPopover, state.status]);
+
+  useEffect(() => () => {
+    focusAudioRef.current?.pause();
+    if (focusAudioUrlRef.current) URL.revokeObjectURL(focusAudioUrlRef.current);
+  }, []);
+
+  useEffect(() => {
+    if (!activePlan) setHudPopover(null);
+  }, [activePlan]);
+
+  useEffect(() => {
+    if (!hudPopover) return;
+    const closePopover = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setHudPopover(null);
+    };
+    const closeFromOutside = (event: PointerEvent) => {
+      const target = event.target as Element | null;
+      if (!target?.closest(".hud-popover, .control-audio, .control-more")) setHudPopover(null);
+    };
+    window.addEventListener("keydown", closePopover);
+    window.addEventListener("pointerdown", closeFromOutside);
+    return () => {
+      window.removeEventListener("keydown", closePopover);
+      window.removeEventListener("pointerdown", closeFromOutside);
+    };
+  }, [hudPopover]);
+
   const handleStartPause = useCallback(() => {
+    if (state.status !== "running" && !activePlan) {
+      const preference = loadFocusAudioPreference();
+      const audio = preference.track ? { track: preference.track, volume: preference.volume, pauseWithTimer: true } : null;
+      setStandaloneFocusAudio(audio);
+      setFocusAudioVolume(preference.volume);
+      setFocusAudioMuted(false);
+      setFocusAudioError("");
+    }
     setState((previous) => {
       const pausing = previous.status === "running";
       if (pausing) {
@@ -114,7 +217,7 @@ export default function App() {
       }
       return { ...previous, elapsedMs: previous.status === "finished" ? 0 : previous.elapsedMs, status: pausing ? "paused" : "running" };
     });
-  }, [settings.notifications, settings.trackPausedTime]);
+  }, [activePlan, settings.notifications, settings.trackPausedTime, state.status]);
 
   const cancelOrReset = useCallback(() => {
     if (activePlan && state.elapsedMs > 0 && !window.confirm("End this session without adding it to history?")) return;
@@ -128,7 +231,13 @@ export default function App() {
   const toggleClickThrough = useCallback(() => setSettings((previous) => ({ ...previous, clickThrough: !previous.clickThrough })), []);
 
   const startPlan = useCallback((plan: SessionPlan) => {
-    const startedPlan = { ...plan, phase: "work" as const, startedAt: new Date().toISOString() };
+    const preference = loadFocusAudioPreference();
+    const selectedAudio = plan.focusAudio === undefined
+      ? (preference.track ? { track: preference.track, volume: preference.volume, pauseWithTimer: true } : null)
+      : plan.focusAudio;
+    if (plan.focusAudio !== undefined) saveFocusAudioPreference(plan.focusAudio);
+    const startedPlan = { ...plan, focusAudio: selectedAudio, phase: "work" as const, startedAt: new Date().toISOString() };
+    setStandaloneFocusAudio(selectedAudio);
     setActivePlan(startedPlan);
     setSessionName(plan.task);
     setState({ mode: "countdown", status: "running", elapsedMs: 0, targetMs: plan.workMinutes * 60_000 });
@@ -136,6 +245,9 @@ export default function App() {
     pauseStartedRef.current = null;
     completionKeyRef.current = "";
     warningKeyRef.current = "";
+    setFocusAudioVolume(selectedAudio?.volume ?? preference.volume);
+    setFocusAudioMuted(false);
+    setFocusAudioError("");
     ensureProjectTask(plan.project, plan.task).then(refreshSessions).catch((error) => setDatabaseError(String(error)));
     setView("hud");
   }, [refreshSessions]);
@@ -275,7 +387,11 @@ export default function App() {
     const resize = async () => {
       const compact = settings.displayMode === "compact";
       const hudSize = completion && (compact || settings.size === "small") ? hudDimensions.medium : compact ? hudDimensions.small : hudDimensions[settings.size];
-      const desired = view === "hud" ? hudSize : [view === "dashboard" ? 580 : 500, 740] as const;
+      const desired = view === "hud"
+        ? hudSize
+        : view === "launcher"
+          ? [500, 650] as const
+          : [view === "dashboard" ? 580 : 500, 740] as const;
       const monitor = await currentMonitor();
       const workArea = monitor?.workArea.size.toLogical(monitor.scaleFactor);
       const width = workArea ? Math.max(280, Math.min(desired[0], workArea.width - 16)) : desired[0];
@@ -367,6 +483,75 @@ export default function App() {
     startPhase(activePlan.phase === "work" ? "break" : "work");
   };
 
+  const applyFocusAudioTrack = (track: FocusAudioTrack | null) => {
+    const nextAudio = track ? {
+      track,
+      volume: focusAudioVolume,
+      pauseWithTimer: activePlan?.focusAudio?.pauseWithTimer ?? true,
+    } : null;
+    if (activePlan) {
+      setActivePlan((previous) => previous ? { ...previous, focusAudio: nextAudio } : previous);
+    }
+    setStandaloneFocusAudio(nextAudio);
+    saveFocusAudioPreference(nextAudio, focusAudioVolume);
+    setFocusAudioMuted(false);
+    setFocusAudioError("");
+  };
+
+  const selectFocusAudioTrack = (track: FocusAudioTrack | null) => {
+    if (!track) {
+      setFocusAudioPreviewing(false);
+      applyFocusAudioTrack(null);
+      return;
+    }
+    const currentTrack = effectiveFocusAudio?.track;
+    const isSelected = currentTrack?.path === track.path && currentTrack?.source === track.source;
+    if (state.status !== "running" && isSelected && focusAudioPreviewing) {
+      setFocusAudioPreviewing(false);
+      return;
+    }
+    if (state.status !== "running" && isSelected && focusAudioRef.current) focusAudioRef.current.currentTime = 0;
+    applyFocusAudioTrack(track);
+    setFocusAudioPreviewing(state.status !== "running");
+  };
+
+  const setActiveBrowserRecording = (file?: File) => {
+    if (!file) return;
+    if (!isSupportedRecording(file.name)) {
+      setFocusAudioError("Choose an MP3, WAV, OGG, FLAC, M4A, or AAC recording.");
+      return;
+    }
+    selectFocusAudioTrack({ name: file.name, source: URL.createObjectURL(file), temporary: true });
+  };
+
+  const chooseActiveRecording = async () => {
+    if (!isTauri()) {
+      activeAudioFileRef.current?.click();
+      return;
+    }
+    try {
+      const selected = await open({
+        multiple: false,
+        directory: false,
+        filters: [{ name: "Audio recordings", extensions: [...FOCUS_AUDIO_EXTENSIONS] }],
+      });
+      if (typeof selected !== "string") return;
+      selectFocusAudioTrack({ name: selected.split(/[\\/]/).pop() || "Local recording", path: selected });
+    } catch (error) {
+      setFocusAudioError(`Unable to open this recording: ${String(error)}`);
+    }
+  };
+
+  const toggleAudioPopover = () => {
+    setHudPopover((openPopover) => openPopover === "audio" ? null : "audio");
+    if (settings.displayMode === "compact" || settings.size === "small") {
+      setSettings((previous) => ({ ...previous, displayMode: "full", size: previous.size === "small" ? "medium" : previous.size }));
+    }
+    if (effectiveFocusAudio && effectiveFocusPhase === "work" && state.status === "running") {
+      focusAudioRef.current?.play().then(() => setFocusAudioError("")).catch(() => setFocusAudioError("Playback needs permission. Press Mute, then Unmute."));
+    }
+  };
+
   const changeSettings = (patch: Partial<Settings>) => setSettings((previous) => ({ ...previous, ...patch }));
   const expandHud = () => setSettings((previous) => ({
     ...previous,
@@ -430,8 +615,29 @@ export default function App() {
         <Timer state={state} sessionName={displayName} />
         {!activePlan && <div className="presets" aria-label="Quick start presets">{[25, 50, 90, 120].map((minutes) => <button key={minutes} onClick={() => startPlan({ kind: "deep-work", workMinutes: minutes, breakMinutes: settings.pomodoroBreakMinutes, phase: "work", project: "", task: sessionName, startedAt: new Date().toISOString(), cycle: 1 })}>{minutes === 120 ? "2 hr" : `${minutes} min`}</button>)}<button onClick={() => setCustomPresetOpen((open) => !open)}>Custom</button></div>}
         {customPresetOpen && !activePlan && <form className="custom-preset" onSubmit={(event) => { event.preventDefault(); startPlan({ kind: "deep-work", workMinutes: Math.max(1, customMinutes), breakMinutes: settings.pomodoroBreakMinutes, phase: "work", project: "", task: sessionName, startedAt: new Date().toISOString(), cycle: 1 }); setCustomPresetOpen(false); }}><input aria-label="Custom duration in minutes" type="number" min="1" max="1440" value={customMinutes} onChange={(event) => setCustomMinutes(Number(event.target.value))} autoFocus /><span>min</span><button type="submit">Start</button></form>}
-        {activePlan && <div className="interval-tools"><button onClick={() => adjustActiveTime(-5)} title="Remove five minutes">−5</button><button onClick={() => adjustActiveTime(5)} title="Add five minutes">+5</button>{activePlan.kind === "pomodoro" && <button onClick={skipInterval} title="Skip interval">Skip</button>}</div>}
-        <Controls status={state.status} activeSession={Boolean(activePlan)} onStartPause={handleStartPause} onReset={cancelOrReset} onNewSession={() => setView("launcher")} onDashboard={() => setView("dashboard")} onOpenSettings={() => setView("settings")} onExpand={expandHud} />
+        {hudPopover === "audio" && <div className="hud-popover hud-popover--audio" role="dialog" aria-label="Focus audio controls">
+          <div className="hud-popover__header"><span><i className={focusAudioIsPlaying ? "is-on" : ""} />Focus audio</span><button type="button" onClick={() => setHudPopover(null)} aria-label="Close audio controls">×</button></div>
+          <strong className="hud-popover__track">{focusAudioError || effectiveFocusAudio?.track.name || "Silence"}</strong>
+          <div className="hud-audio-presets">
+            <button type="button" title="Silence" className={!effectiveFocusAudio ? "is-active" : ""} onClick={() => selectFocusAudioTrack(null)}>Silence</button>
+            {RECORDED_FOCUS_PRESETS.map((track) => {
+              const selected = effectiveFocusAudio?.track.source === track.source;
+              return <button type="button" key={track.name} title={track.name} className={`${selected ? "is-active" : ""} ${selected && focusAudioPreviewing ? "is-previewing" : ""}`} onClick={() => selectFocusAudioTrack(track)}>{track.name}</button>;
+            })}
+          </div>
+          <label className="hud-audio-volume"><span>Volume</span><input type="range" min="0" max="100" value={focusAudioVolume} disabled={!effectiveFocusAudio} onChange={(event) => { const volume = Number(event.target.value); setFocusAudioVolume(volume); saveFocusAudioVolume(volume); }} /><output>{focusAudioVolume}%</output></label>
+          <div className="hud-popover__actions">
+            <button type="button" disabled={!effectiveFocusAudio} onClick={() => setFocusAudioMuted((muted) => !muted)}>{focusAudioMuted ? "Unmute" : "Mute"}</button>
+            <button type="button" onClick={() => void chooseActiveRecording()}>Choose recording…</button>
+          </div>
+          <input ref={activeAudioFileRef} className="sr-only" type="file" accept="audio/mpeg,audio/wav,audio/ogg,audio/flac,audio/mp4,audio/aac" onChange={(event) => { setActiveBrowserRecording(event.target.files?.[0]); event.target.value = ""; }} />
+        </div>}
+        {activePlan && hudPopover === "more" && <div className="hud-popover hud-popover--more" role="dialog" aria-label="More session controls">
+          <div className="hud-popover__header"><span>Session controls</span><button type="button" onClick={() => setHudPopover(null)} aria-label="Close more controls">×</button></div>
+          <div className="hud-time-adjust"><span>Adjust remaining time</span><div><button type="button" onClick={() => adjustActiveTime(-5)}>−5 min</button><button type="button" onClick={() => adjustActiveTime(5)}>+5 min</button>{activePlan.kind === "pomodoro" && <button type="button" onClick={() => { skipInterval(); setHudPopover(null); }}>Skip</button>}</div></div>
+          <div className="hud-popover__actions"><button type="button" onClick={() => { setHudPopover(null); setView("dashboard"); }}>Dashboard</button><button type="button" onClick={() => { setHudPopover(null); setView("settings"); }}>Settings</button></div>
+        </div>}
+        <Controls status={state.status} activeSession={Boolean(activePlan)} onStartPause={handleStartPause} onReset={cancelOrReset} onNewSession={() => setView("launcher")} onDashboard={() => setView("dashboard")} onOpenSettings={() => setView("settings")} onExpand={expandHud} audioPlaying={focusAudioIsPlaying} openPopover={hudPopover} onAudio={toggleAudioPopover} onMore={() => setHudPopover((openPopover) => openPopover === "more" ? null : "more")} />
       </div>
       {completion && <div className="completion-backdrop"><div className="completion-card"><span>{completion.phase === "break" ? "☕" : "✓"}</span><h2>{completion.title}</h2><p>{completion.body}</p><div>{completion.phase === "work" && <button className="primary-action" onClick={() => startPhase("break")}>Start break</button>}{completion.phase === "break" && <button className="primary-action" onClick={() => startPhase("work")}>Start focus</button>}{completion.phase === "deep" && <button className="primary-action" onClick={() => { setActivePlan(null); setCompletion(null); setState(initialTimerState(settings.defaultMode, settings.defaultDuration)); }}>Done</button>}{completion.phase !== "deep" && <button onClick={() => { setActivePlan(null); setCompletion(null); setState(initialTimerState(settings.defaultMode, settings.defaultDuration)); }}>Not now</button>}</div></div></div>}
       {clickThroughNotice && <div className="notice">Click-through on · Ctrl + Alt + C to disable</div>}

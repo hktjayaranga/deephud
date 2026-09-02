@@ -25,6 +25,7 @@
     "dialog:allow-save",
     "dialog:allow-confirm",
     "fs:allow-read-text-file",
+    "fs:allow-read-file",
     "fs:allow-stat",
     "fs:allow-write-text-file",
     "window-state:default"

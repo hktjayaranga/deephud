@@ -26,16 +26,18 @@ export default function SessionLauncher({ settings, projects, initialTask, onSta
   const [task, setTask] = useState(initialTask);
   const taskSuggestions = projects.find((item) => item.name.toLocaleLowerCase() === project.trim().toLocaleLowerCase())?.tasks ?? [];
 
-  const start = () => onStart({
-    kind,
-    workMinutes: Math.max(1, workMinutes),
-    breakMinutes: Math.max(1, breakMinutes),
-    phase: "work",
-    project: project.trim(),
-    task: task.trim(),
-    startedAt: new Date().toISOString(),
-    cycle: 1,
-  });
+  const start = () => {
+    onStart({
+      kind,
+      workMinutes: Math.max(1, workMinutes),
+      breakMinutes: Math.max(1, breakMinutes),
+      phase: "work",
+      project: project.trim(),
+      task: task.trim(),
+      startedAt: new Date().toISOString(),
+      cycle: 1,
+    });
+  };
 
   return <section className="workspace launcher">
     <header className="workspace__header" data-tauri-drag-region onMouseDown={onDragStart}>

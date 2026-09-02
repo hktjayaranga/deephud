@@ -19,7 +19,8 @@ Stay focused on deep work without accounts, cloud sync, telemetry, or tracking.
 - Projects, tasks, editable history, daily/weekly statistics, goals, and streaks
 - CSV/JSON export plus complete JSON backup and restore
 - Configurable global shortcuts and system-tray controls
-- Desktop notifications, sounds, warnings, and native idle handling
+- Desktop notifications, completion sounds, warnings, and native idle handling
+- Global focus audio with real rain, forest, and calm-waterfall recordings, local audio files, instant previews, and remembered volume
 - Start on login, close to tray, and native installers for all three desktop platforms
 - Offline-only SQLite storage with no tracking
 
@@ -88,6 +89,25 @@ alert, idle, goal, and shortcut settings.
 
 Completed work intervals are recorded; breaks do not inflate focus totals. The
 History page can search, filter, edit, delete, export, back up, and restore data.
+
+### Focus audio
+
+Open the Audio popover from the full HUD to control focus sound for any Deep
+Work, Pomodoro, quick-start, custom, countdown, or stopwatch session. Focus
+audio is off by default and plays entirely on the device.
+
+- Choose the included Heavy rain, Forest, or Calm waterfall field recording,
+  or use a local MP3, WAV, OGG, FLAC, M4A, or AAC file.
+- Select a recording while the timer is stopped to hear an eight-second
+  preview. Choose another recording to switch previews, select the current one
+  again to stop, or close the popover to end the preview.
+- Change the active recording, volume, or mute state without stopping a running
+  timer. Selecting Silence stops focus audio and remembers that choice.
+- DeepHUD remembers the selected recording and volume, pauses audio with the
+  timer, and stops it when the session ends or resets.
+
+The Audio button is intentionally hidden in compact mode. Expand to the full
+HUD to change focus-audio controls.
 
 ### Default shortcuts
 

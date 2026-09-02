@@ -102,9 +102,6 @@ button:focus-visible, input:focus-visible, select:focus-visible, .accent:focus-w
 .custom-preset input { width: 52px; padding: 4px 5px; border: 1px solid var(--line); border-radius: 6px; outline: 0; background: var(--surface); color: var(--text); font-size: 10px; }
 .custom-preset span { color: var(--muted); font-size: 9px; }
 .custom-preset button { padding: 5px 8px; border: 0; border-radius: 6px; background: var(--accent); color: #102018; font-size: 9px; font-weight: 700; cursor: pointer; }
-.interval-tools { flex: 0 0 auto; display: flex; gap: 5px; margin: 8px 0 9px; }
-.interval-tools button { min-width: 30px; padding: 4px 7px; border: 1px solid var(--line); border-radius: 7px; background: transparent; color: var(--muted); font-size: 8px; cursor: pointer; }
-.interval-tools button:hover { border-color: rgba(var(--accent-rgb), .4); color: var(--text); }
 .controls { flex: 0 0 31px; display: flex; align-items: center; gap: 9px; margin-top: auto; }
 .controls button, .icon-button { width: 31px; height: 31px; display: grid; place-items: center; padding: 0; border: 1px solid transparent; border-radius: 9px; background: var(--button); cursor: pointer; transition: transform 140ms ease, background 140ms ease, border-color 140ms ease; }
 .controls button:hover, .icon-button:hover { transform: translateY(-1px); background: var(--button-hover); border-color: var(--line); }
@@ -113,13 +110,41 @@ button:focus-visible, input:focus-visible, select:focus-visible, .accent:focus-w
 .controls button svg .fill { fill: currentColor; stroke: none; }
 .controls .controls__primary { color: #102018; background: var(--accent); }
 .controls .controls__primary:hover { background: var(--accent); filter: brightness(1.06); }
+.controls .control-audio, .controls .control-more { position: relative; }
+.controls .control-audio.is-active, .controls .control-more.is-active { border-color: rgba(var(--accent-rgb), .48); background: rgba(var(--accent-rgb), .12); color: var(--accent); }
+.controls .control-audio.is-playing::after { content: ""; position: absolute; top: 3px; right: 3px; width: 5px; height: 5px; border: 1.5px solid rgba(var(--bg), .9); border-radius: 50%; background: var(--accent); box-shadow: 0 0 5px rgba(var(--accent-rgb), .7); }
 .control-expand { display: none !important; }
+.hud-popover { position: absolute; right: 18px; bottom: 58px; left: 18px; z-index: 12; padding: 11px; border: 1px solid var(--line); border-radius: 13px; background: rgba(var(--bg), .97); box-shadow: 0 16px 45px rgba(0, 0, 0, .36); backdrop-filter: blur(22px); }
+.hud-popover::after { content: ""; position: absolute; right: 84px; bottom: -5px; width: 9px; height: 9px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); background: rgba(var(--bg), .97); transform: rotate(45deg); }
+.hud-popover--audio::after { right: 124px; }
+.hud-popover__header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.hud-popover__header > span { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 8px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; }
+.hud-popover__header i { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
+.hud-popover__header i.is-on { background: var(--accent); box-shadow: 0 0 7px rgba(var(--accent-rgb), .65); }
+.hud-popover__header > button { width: 20px; height: 20px; border: 0; border-radius: 6px; background: var(--button); color: var(--muted); cursor: pointer; }
+.hud-popover__track { display: block; overflow: hidden; margin-bottom: 8px; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.hud-audio-presets { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+.hud-audio-presets button, .hud-time-adjust button, .hud-popover__actions button { min-width: 0; padding: 6px; border: 1px solid var(--line); border-radius: 7px; background: var(--button); color: var(--muted); font-size: 8px; cursor: pointer; }
+.hud-audio-presets button { position: relative; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hud-audio-presets button.is-active { border-color: rgba(var(--accent-rgb), .5); background: rgba(var(--accent-rgb), .1); color: var(--accent); }
+.hud-audio-presets button.is-previewing::after { content: ""; position: absolute; top: 3px; right: 3px; width: 4px; height: 4px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 5px rgba(var(--accent-rgb), .7); animation: audio-preview-pulse 1s ease-in-out infinite; }
+@keyframes audio-preview-pulse { 50% { opacity: .35; } }
+.hud-audio-volume { display: grid; grid-template-columns: auto 1fr 30px; align-items: center; gap: 8px; margin-top: 10px; color: var(--muted); font-size: 8px; }
+.hud-audio-volume input { min-width: 0; height: 4px; accent-color: var(--accent); }
+.hud-audio-volume output { text-align: right; }
+.hud-popover__actions { display: flex; gap: 5px; margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); }
+.hud-popover__actions button { flex: 1; }
+.hud-popover button:hover:not(:disabled) { border-color: rgba(var(--accent-rgb), .42); color: var(--text); }
+.hud-popover button:disabled, .hud-popover input:disabled { cursor: not-allowed; opacity: .4; }
+.hud-time-adjust { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.hud-time-adjust > span { color: var(--muted); font-size: 9px; }
+.hud-time-adjust > div { display: flex; gap: 4px; }
 .notice, .error-notice { position: absolute; inset: auto 12px 12px; z-index: 10; padding: 8px; border: 1px solid rgba(var(--accent-rgb), .25); border-radius: 9px; background: var(--surface-raised); color: var(--text); text-align: center; font-size: 10px; }
 .error-notice { border-color: rgba(245, 110, 110, .35); cursor: pointer; }
 
 .size-small .hud { border-radius: 14px; }
 .size-small .hud__header { position: absolute; z-index: 2; width: 42px; height: 100%; padding: 0 0 0 13px; border: 0; }
-.size-small .brand span:last-child, .size-small .status-label, .size-small .cycle-label, .size-small .session-field, .size-small .active-intent, .size-small .timer__progress, .size-small .presets, .size-small .custom-preset, .size-small .interval-tools, .size-small .control-reset, .size-small .control-focus, .size-small .control-dashboard, .size-small .control-settings { display: none; }
+.size-small .brand span:last-child, .size-small .status-label, .size-small .cycle-label, .size-small .session-field, .size-small .active-intent, .size-small .timer__progress, .size-small .presets, .size-small .custom-preset, .size-small .hud-popover, .size-small .control-reset, .size-small .control-focus, .size-small .control-dashboard, .size-small .control-settings, .size-small .control-audio, .size-small .control-more { display: none; }
 .size-small .hud__body { height: 100%; display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; padding: 0 10px 0 42px; }
 .size-small .timer { min-width: 0; width: 100%; }
 .size-small .timer__clock { margin: 0; font-size: 32px; line-height: 1; letter-spacing: -2px; white-space: nowrap; }
@@ -136,10 +161,12 @@ button:focus-visible, input:focus-visible, select:focus-visible, .accent:focus-w
 .size-large .timer { order: 1; }
 .size-large .timer__clock { margin-top: 2px; font-size: 58px; letter-spacing: -3.5px; }
 .size-large .timer__progress { margin-top: 15px; height: 4px; }
-.size-large .presets, .size-large .interval-tools { order: 3; margin: 0; }
+.size-large .presets { order: 3; margin: 0; }
 .size-large .presets button { padding: 5px 10px; font-size: 10px; }
 .size-large .controls { flex-basis: 36px; order: 4; margin-top: auto; }
 .size-large .controls button { width: 36px; height: 36px; border-radius: 11px; }
+.size-large .hud-popover::after { right: 121px; }
+.size-large .hud-popover--audio::after { right: 166px; }
 
 .completion-backdrop { position: absolute; inset: 0; z-index: 20; display: grid; place-items: center; padding: 18px; background: rgba(7, 9, 12, .65); backdrop-filter: blur(8px); }
 .completion-card { width: 100%; padding: 20px 16px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); text-align: center; box-shadow: 0 20px 60px rgba(0, 0, 0, .4); }
