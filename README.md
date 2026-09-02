@@ -1,8 +1,8 @@
 # DeepHUD
 
-A minimal, privacy-first deep-work timer for Linux, Windows, and macOS. DeepHUD stays above
-your workspace, gets out of the way when asked, and turns completed focus into
-useful local statistics—without an account, cloud service, or telemetry.
+**DeepHUD is a privacy-first, distraction-free focus timer for Windows, macOS, and Linux.**
+
+Stay focused on deep work without accounts, cloud sync, telemetry, or tracking.
 
 ![DeepHUD Version 1.0](assets/deephud-v1.png)
 
