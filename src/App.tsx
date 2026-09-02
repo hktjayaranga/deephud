@@ -14,7 +14,7 @@ import SettingsPanel from "./components/SettingsPanel";
 import { ProjectRecord, SessionRecord, deleteSession, ensureProjectTask, getProjects, getSessions, initializeDatabase, replaceSessions, saveSession, updateSession } from "./services/database";
 import { createBackup, exportSessions, selectBackup } from "./services/dataTransfer";
 import { FOCUS_AUDIO_EXTENSIONS, RECORDED_FOCUS_PRESETS, isSupportedRecording, loadFocusAudioPreference, resolveFocusAudio, saveFocusAudioPreference, saveFocusAudioVolume } from "./services/focusAudio";
-import { playChime, notify } from "./services/notifications";
+import { playChime, notify, unlockAudio } from "./services/notifications";
 import { FocusAudioPlan, FocusAudioTrack, SessionPhase, SessionPlan } from "./services/session";
 import { TimerState, initialTimerState } from "./services/timer";
 import { adjustedTarget, advanceElapsed, hasFinished } from "./services/timerMath";
@@ -28,6 +28,15 @@ const isTauri = () => "__TAURI_INTERNALS__" in window;
 const appWindow = isTauri() ? getCurrentWindow() : null;
 const hudDimensions = { small: [280, 86], medium: [340, 286], large: [420, 400] } as const;
 const reliableNow = () => isTauri() ? invoke<number>("monotonic_millis") : Promise.resolve(performance.now());
+
+function focusAudioPlayError(error: unknown) {
+  const name = error instanceof Error || error instanceof DOMException ? error.name : "";
+  const message = error instanceof Error || error instanceof DOMException ? error.message : String(error);
+  if (name === "AbortError") return null;
+  if (name === "NotAllowedError") return "Playback needs permission. Interact with the audio control and try again.";
+  if (name === "NotSupportedError") return "This recording is corrupt or its format is not supported on this device.";
+  return `Unable to play this recording: ${message || name || "Unknown playback error"}`;
+}
 
 export default function App() {
   const [settings, setSettings] = useState<Settings>(loadSettings);
@@ -55,6 +64,7 @@ export default function App() {
   const focusAudioShouldPlayRef = useRef(false);
   const [focusAudioMuted, setFocusAudioMuted] = useState(false);
   const [focusAudioVolume, setFocusAudioVolume] = useState(() => loadFocusAudioPreference().volume);
+  const [focusAudioActuallyPlaying, setFocusAudioActuallyPlaying] = useState(false);
   const [focusAudioError, setFocusAudioError] = useState("");
   const [focusAudioPreviewing, setFocusAudioPreviewing] = useState(false);
   const [standaloneFocusAudio, setStandaloneFocusAudio] = useState<FocusAudioPlan | null>(() => {
@@ -66,8 +76,7 @@ export default function App() {
   const actionsRef = useRef({ startPause: () => {}, reset: () => {}, clickThrough: () => {}, startDeepWork: () => {}, dashboard: () => {} });
   const effectiveFocusAudio = activePlan ? activePlan.focusAudio : standaloneFocusAudio;
   const effectiveFocusPhase: SessionPhase = activePlan?.phase ?? "work";
-  const focusAudioSessionPlaying = Boolean(effectiveFocusAudio && effectiveFocusPhase === "work" && (state.status === "running" || (!effectiveFocusAudio.pauseWithTimer && state.status === "paused")));
-  const focusAudioIsPlaying = Boolean(effectiveFocusAudio && (focusAudioSessionPlaying || focusAudioPreviewing) && !focusAudioMuted && focusAudioVolume > 0);
+  const focusAudioIsPlaying = focusAudioActuallyPlaying && !focusAudioMuted && focusAudioVolume > 0;
 
   const refreshSessions = useCallback(async () => {
     try {
@@ -117,13 +126,67 @@ export default function App() {
     document.documentElement.style.setProperty("--custom-accent", settings.customAccent);
   }, [settings]);
 
+  useEffect(() => {
+    const unlock = () => {
+      void unlockAudio().catch((error) => console.warn("Unable to enable audio", error));
+    };
+    window.addEventListener("pointerdown", unlock, { once: true });
+    window.addEventListener("keydown", unlock, { once: true });
+    return () => {
+      window.removeEventListener("pointerdown", unlock);
+      window.removeEventListener("keydown", unlock);
+    };
+  }, []);
+
   useEffect(() => { localStorage.setItem("deepwork-hud:session", sessionName); }, [sessionName]);
 
   useEffect(() => {
-    const track = effectiveFocusAudio?.track;
-    const audio = focusAudioRef.current ?? new Audio();
-    focusAudioRef.current = audio;
+    const audio = new Audio();
+    const stopPlayingIndicator = () => setFocusAudioActuallyPlaying(false);
+    const handlePlaying = () => {
+      setFocusAudioActuallyPlaying(true);
+      setFocusAudioError("");
+    };
+    const handleError = () => {
+      stopPlayingIndicator();
+      const code = audio.error?.code;
+      if (code === 2) setFocusAudioError("This recording could not be loaded from its location.");
+      else if (code === 3) setFocusAudioError("This recording is corrupt or could not be decoded.");
+      else if (code === 4) setFocusAudioError("This recording format is not supported on this device.");
+      else if (code !== 1) setFocusAudioError("Unable to play this recording.");
+    };
+
     audio.loop = true;
+    audio.addEventListener("playing", handlePlaying);
+    audio.addEventListener("pause", stopPlayingIndicator);
+    audio.addEventListener("ended", stopPlayingIndicator);
+    audio.addEventListener("emptied", stopPlayingIndicator);
+    audio.addEventListener("loadstart", stopPlayingIndicator);
+    audio.addEventListener("waiting", stopPlayingIndicator);
+    audio.addEventListener("error", handleError);
+    focusAudioRef.current = audio;
+
+    return () => {
+      audio.pause();
+      audio.removeAttribute("src");
+      audio.load();
+      audio.removeEventListener("playing", handlePlaying);
+      audio.removeEventListener("pause", stopPlayingIndicator);
+      audio.removeEventListener("ended", stopPlayingIndicator);
+      audio.removeEventListener("emptied", stopPlayingIndicator);
+      audio.removeEventListener("loadstart", stopPlayingIndicator);
+      audio.removeEventListener("waiting", stopPlayingIndicator);
+      audio.removeEventListener("error", handleError);
+      if (focusAudioUrlRef.current) URL.revokeObjectURL(focusAudioUrlRef.current);
+      focusAudioUrlRef.current = "";
+      focusAudioRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    const track = effectiveFocusAudio?.track;
+    const audio = focusAudioRef.current;
+    if (!audio) return;
     let cancelled = false;
 
     audio.pause();
@@ -142,8 +205,18 @@ export default function App() {
       focusAudioUrlRef.current = revoke ? url : "";
       audio.src = url;
       audio.load();
-      if (focusAudioShouldPlayRef.current) audio.play().catch(() => setFocusAudioError("Select the audio control to start this recording."));
-    }).catch((error) => setFocusAudioError(String(error)));
+      if (focusAudioShouldPlayRef.current) {
+        const requestedSource = audio.src;
+        audio.play().catch((error: unknown) => {
+          const message = focusAudioPlayError(error);
+          if (cancelled || audio.src !== requestedSource || !message) return;
+          setFocusAudioActuallyPlaying(false);
+          setFocusAudioError(message);
+        });
+      }
+    }).catch((error) => {
+      if (!cancelled) setFocusAudioError(`Unable to open this recording: ${String(error)}`);
+    });
 
     return () => { cancelled = true; };
   }, [effectiveFocusAudio?.track.path, effectiveFocusAudio?.track.source]);
@@ -156,7 +229,15 @@ export default function App() {
     if (!audio || !configured) return;
     audio.volume = Math.max(0, Math.min(1, focusAudioVolume / 100));
     audio.muted = focusAudioMuted;
-    if (shouldPlay && audio.src) audio.play().catch(() => setFocusAudioError("Select the audio control to start this recording."));
+    if (shouldPlay && audio.src) {
+      const requestedSource = audio.src;
+      audio.play().catch((error: unknown) => {
+        const message = focusAudioPlayError(error);
+        if (audio.src !== requestedSource || !message) return;
+        setFocusAudioActuallyPlaying(false);
+        setFocusAudioError(message);
+      });
+    }
     else audio.pause();
   }, [effectiveFocusAudio, effectiveFocusPhase, focusAudioMuted, focusAudioPreviewing, focusAudioVolume, state.status]);
 
@@ -169,11 +250,6 @@ export default function App() {
     const timer = window.setTimeout(() => setFocusAudioPreviewing(false), 8_000);
     return () => window.clearTimeout(timer);
   }, [effectiveFocusAudio?.track.path, effectiveFocusAudio?.track.source, focusAudioPreviewing, hudPopover, state.status]);
-
-  useEffect(() => () => {
-    focusAudioRef.current?.pause();
-    if (focusAudioUrlRef.current) URL.revokeObjectURL(focusAudioUrlRef.current);
-  }, []);
 
   useEffect(() => {
     if (!activePlan) setHudPopover(null);
@@ -288,7 +364,7 @@ export default function App() {
     if (completionKeyRef.current === key) return;
     completionKeyRef.current = key;
     const complete = async () => {
-      if (settings.sound) playChime(settings.volume, activePlan.phase === "work" ? "work" : "break");
+      if (settings.sound) void playChime(settings.volume, activePlan.phase === "work" ? "work" : "break");
       if (activePlan.phase === "work") {
         const record: SessionRecord = {
           startedAt: activePlan.startedAt,
@@ -542,13 +618,33 @@ export default function App() {
     }
   };
 
+  const changeFocusAudioVolume = (volume: number) => {
+    setFocusAudioVolume(volume);
+    setActivePlan((previous) => previous?.focusAudio
+      ? { ...previous, focusAudio: { ...previous.focusAudio, volume } }
+      : previous);
+    setStandaloneFocusAudio((previous) => previous
+      ? { ...previous, volume }
+      : previous);
+    saveFocusAudioVolume(volume);
+  };
+
   const toggleAudioPopover = () => {
     setHudPopover((openPopover) => openPopover === "audio" ? null : "audio");
     if (settings.displayMode === "compact" || settings.size === "small") {
       setSettings((previous) => ({ ...previous, displayMode: "full", size: previous.size === "small" ? "medium" : previous.size }));
     }
     if (effectiveFocusAudio && effectiveFocusPhase === "work" && state.status === "running") {
-      focusAudioRef.current?.play().then(() => setFocusAudioError("")).catch(() => setFocusAudioError("Playback needs permission. Press Mute, then Unmute."));
+      const audio = focusAudioRef.current;
+      if (audio) {
+        const requestedSource = audio.src;
+        audio.play().then(() => setFocusAudioError("")).catch((error: unknown) => {
+          const message = focusAudioPlayError(error);
+          if (audio.src !== requestedSource || !message) return;
+          setFocusAudioActuallyPlaying(false);
+          setFocusAudioError(message);
+        });
+      }
     }
   };
 
@@ -625,7 +721,7 @@ export default function App() {
               return <button type="button" key={track.name} title={track.name} className={`${selected ? "is-active" : ""} ${selected && focusAudioPreviewing ? "is-previewing" : ""}`} onClick={() => selectFocusAudioTrack(track)}>{track.name}</button>;
             })}
           </div>
-          <label className="hud-audio-volume"><span>Volume</span><input type="range" min="0" max="100" value={focusAudioVolume} disabled={!effectiveFocusAudio} onChange={(event) => { const volume = Number(event.target.value); setFocusAudioVolume(volume); saveFocusAudioVolume(volume); }} /><output>{focusAudioVolume}%</output></label>
+          <label className="hud-audio-volume"><span>Volume</span><input type="range" min="0" max="100" value={focusAudioVolume} disabled={!effectiveFocusAudio} onChange={(event) => changeFocusAudioVolume(Number(event.target.value))} /><output>{focusAudioVolume}%</output></label>
           <div className="hud-popover__actions">
             <button type="button" disabled={!effectiveFocusAudio} onClick={() => setFocusAudioMuted((muted) => !muted)}>{focusAudioMuted ? "Unmute" : "Mute"}</button>
             <button type="button" onClick={() => void chooseActiveRecording()}>Choose recording…</button>

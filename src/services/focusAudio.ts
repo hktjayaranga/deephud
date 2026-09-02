@@ -1,4 +1,4 @@
-import { readFile } from "@tauri-apps/plugin-fs";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import { FocusAudioPlan, FocusAudioTrack } from "./session";
 
 export const FOCUS_AUDIO_EXTENSIONS = ["mp3", "wav", "ogg", "flac", "m4a", "aac"] as const;
@@ -49,15 +49,6 @@ export function saveFocusAudioVolume(volume: number) {
   localStorage.setItem(FOCUS_AUDIO_PREFERENCE_KEY, JSON.stringify({ ...current, volume: Math.max(0, Math.min(100, Math.round(volume))) }));
 }
 
-const mimeTypes: Record<string, string> = {
-  mp3: "audio/mpeg",
-  wav: "audio/wav",
-  ogg: "audio/ogg",
-  flac: "audio/flac",
-  m4a: "audio/mp4",
-  aac: "audio/aac",
-};
-
 const extensionOf = (name: string) => name.split(".").pop()?.toLocaleLowerCase() ?? "";
 
 export function isSupportedRecording(name: string) {
@@ -67,7 +58,5 @@ export function isSupportedRecording(name: string) {
 export async function resolveFocusAudio(track: FocusAudioTrack): Promise<{ url: string; revoke: boolean }> {
   if (track.source) return { url: track.source, revoke: Boolean(track.temporary) };
   if (!track.path) throw new Error("This recording is no longer available. Choose it again.");
-  const bytes = await readFile(track.path);
-  const type = mimeTypes[extensionOf(track.name)] ?? "audio/mpeg";
-  return { url: URL.createObjectURL(new Blob([bytes], { type })), revoke: true };
+  return { url: convertFileSrc(track.path), revoke: false };
 }

@@ -2,6 +2,18 @@ import { isPermissionGranted, requestPermission, sendNotification } from "@tauri
 
 const inTauri = () => "__TAURI_INTERNALS__" in window;
 
+let audioContext: AudioContext | null = null;
+
+function getAudioContext() {
+  audioContext ??= new AudioContext();
+  return audioContext;
+}
+
+export async function unlockAudio() {
+  const context = getAudioContext();
+  if (context.state === "suspended") await context.resume();
+}
+
 export async function notify(title: string, body: string, enabled: boolean) {
   if (!enabled) return;
   try {
@@ -18,12 +30,22 @@ export async function notify(title: string, body: string, enabled: boolean) {
   }
 }
 
-export function playChime(volume: number, tone: "work" | "break" = "work") {
+export async function playChime(volume: number, tone: "work" | "break" = "work") {
+  const level = Math.max(0, Math.min(1, volume / 100)) * 0.16;
+  if (level === 0) return;
+
   try {
-    const context = new AudioContext();
+    const context = getAudioContext();
+    if (context.state === "suspended") await context.resume();
+    if (context.state !== "running") {
+      console.warn("Completion sound is blocked until the user interacts with the app.");
+      return;
+    }
+
+    const now = context.currentTime;
     const gain = context.createGain();
-    gain.gain.setValueAtTime(Math.max(0, Math.min(1, volume / 100)) * 0.16, context.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, context.currentTime + 0.8);
+    gain.gain.setValueAtTime(level, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.8);
     gain.connect(context.destination);
     const frequencies = tone === "work" ? [523.25, 659.25, 783.99] : [659.25, 523.25];
     frequencies.forEach((frequency, index) => {
@@ -31,10 +53,9 @@ export function playChime(volume: number, tone: "work" | "break" = "work") {
       oscillator.frequency.value = frequency;
       oscillator.type = "sine";
       oscillator.connect(gain);
-      oscillator.start(context.currentTime + index * 0.16);
-      oscillator.stop(context.currentTime + 0.35 + index * 0.16);
+      oscillator.start(now + index * 0.16);
+      oscillator.stop(now + 0.35 + index * 0.16);
     });
-    window.setTimeout(() => context.close(), 1200);
   } catch (error) {
     console.warn("Unable to play completion sound", error);
   }
