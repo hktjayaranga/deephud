@@ -4,6 +4,10 @@
 
 Stay focused on deep work without accounts, cloud sync, telemetry, or tracking.
 
+[Website](https://hktjayaranga.github.io/deephud/) ·
+[Download](https://github.com/hktjayaranga/deephud/releases/latest) ·
+[Privacy](docs/PRIVACY.md)
+
 ![DeepHUD Version 1.0](assets/deephud-v1.png)
 
 ## Features
@@ -21,7 +25,8 @@ Stay focused on deep work without accounts, cloud sync, telemetry, or tracking.
 
 ## Install a release
 
-Download the installer for your operating system from the GitHub release:
+Download the installer for your operating system from the
+[latest GitHub release](https://github.com/hktjayaranga/deephud/releases/latest):
 
 - Linux x64: `.deb` or AppImage
 - Windows x64: NSIS setup `.exe` or `.msi`
