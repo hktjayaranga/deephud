@@ -123,10 +123,18 @@ button:focus-visible, input:focus-visible, select:focus-visible, .accent:focus-w
 .hud-popover__header i.is-on { background: var(--accent); box-shadow: 0 0 7px rgba(var(--accent-rgb), .65); }
 .hud-popover__header > button { width: 20px; height: 20px; border: 0; border-radius: 6px; background: var(--button); color: var(--muted); cursor: pointer; }
 .hud-popover__track { display: block; overflow: hidden; margin-bottom: 8px; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
-.hud-audio-presets { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+.hud-audio-presets { display: flex; gap: 4px; overflow-x: auto; padding: 0 0 5px; scrollbar-color: rgba(var(--accent-rgb), .4) transparent; scrollbar-width: thin; scroll-snap-type: x proximity; }
+.hud-audio-presets::-webkit-scrollbar { height: 3px; }
+.hud-audio-presets::-webkit-scrollbar-thumb { border-radius: 3px; background: rgba(var(--accent-rgb), .4); }
+.hud-audio-presets > button, .hud-audio-user { flex: 0 0 calc((100% - 12px) / 4); scroll-snap-align: start; }
+.hud-audio-user { position: relative; min-width: 0; }
+.hud-audio-user__select { width: 100%; padding-right: 19px !important; }
+.hud-audio-user .hud-audio-user__remove { position: absolute; top: 1px; right: 1px; z-index: 1; width: 16px; height: 16px; padding: 0; border: 0; background: transparent; color: var(--muted); font-size: 12px; line-height: 16px; }
+.hud-audio-user .hud-audio-user__remove:hover:not(:disabled) { background: rgba(245, 110, 110, .16); color: #f56e6e; }
 .hud-audio-presets button, .hud-time-adjust button, .hud-popover__actions button { min-width: 0; padding: 6px; border: 1px solid var(--line); border-radius: 7px; background: var(--button); color: var(--muted); font-size: 8px; cursor: pointer; }
 .hud-audio-presets button { position: relative; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hud-audio-presets button.is-active { border-color: rgba(var(--accent-rgb), .5); background: rgba(var(--accent-rgb), .1); color: var(--accent); }
+.hud-audio-user .hud-audio-user__select.is-previewing::after { right: 18px; }
 .hud-audio-presets button.is-previewing::after { content: ""; position: absolute; top: 3px; right: 3px; width: 4px; height: 4px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 5px rgba(var(--accent-rgb), .7); animation: audio-preview-pulse 1s ease-in-out infinite; }
 @keyframes audio-preview-pulse { 50% { opacity: .35; } }
 .hud-audio-volume { display: grid; grid-template-columns: auto 1fr 30px; align-items: center; gap: 8px; margin-top: 10px; color: var(--muted); font-size: 8px; }

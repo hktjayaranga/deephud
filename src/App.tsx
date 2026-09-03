@@ -13,7 +13,7 @@ import SessionLauncher from "./components/SessionLauncher";
 import SettingsPanel from "./components/SettingsPanel";
 import { ProjectRecord, SessionRecord, deleteSession, ensureProjectTask, getProjects, getSessions, initializeDatabase, replaceSessions, saveSession, updateSession } from "./services/database";
 import { createBackup, exportSessions, selectBackup } from "./services/dataTransfer";
-import { FOCUS_AUDIO_EXTENSIONS, RECORDED_FOCUS_PRESETS, isSupportedRecording, loadFocusAudioPreference, resolveFocusAudio, saveFocusAudioPreference, saveFocusAudioVolume } from "./services/focusAudio";
+import { FOCUS_AUDIO_EXTENSIONS, RECORDED_FOCUS_PRESETS, UserAudioRecording, importUserAudioRecording, isSupportedRecording, loadFocusAudioPreference, loadUserAudioLibrary, removeUserAudioRecording, renameUserAudioRecording, resolveFocusAudio, saveFocusAudioPreference, saveFocusAudioVolume, toFocusAudioTrack } from "./services/focusAudio";
 import { playChime, notify, unlockAudio } from "./services/notifications";
 import { FocusAudioPlan, FocusAudioTrack, SessionPhase, SessionPlan } from "./services/session";
 import { TimerState, initialTimerState } from "./services/timer";
@@ -36,6 +36,12 @@ function focusAudioPlayError(error: unknown) {
   if (name === "NotAllowedError") return "Playback needs permission. Interact with the audio control and try again.";
   if (name === "NotSupportedError") return "This recording is corrupt or its format is not supported on this device.";
   return `Unable to play this recording: ${message || name || "Unknown playback error"}`;
+}
+
+function isSameFocusAudioTrack(left?: FocusAudioTrack | null, right?: FocusAudioTrack | null) {
+  if (!left || !right) return false;
+  if (left.libraryId || right.libraryId) return left.libraryId === right.libraryId;
+  return left.path === right.path && left.source === right.source;
 }
 
 export default function App() {
@@ -67,6 +73,8 @@ export default function App() {
   const [focusAudioActuallyPlaying, setFocusAudioActuallyPlaying] = useState(false);
   const [focusAudioError, setFocusAudioError] = useState("");
   const [focusAudioPreviewing, setFocusAudioPreviewing] = useState(false);
+  const [userAudioRecordings, setUserAudioRecordings] = useState<UserAudioRecording[]>([]);
+  const [focusAudioLibraryBusy, setFocusAudioLibraryBusy] = useState(false);
   const [standaloneFocusAudio, setStandaloneFocusAudio] = useState<FocusAudioPlan | null>(() => {
     const preference = loadFocusAudioPreference();
     return preference.track ? { track: preference.track, volume: preference.volume, pauseWithTimer: true } : null;
@@ -90,6 +98,15 @@ export default function App() {
   useEffect(() => {
     initializeDatabase().then(refreshSessions).catch((error) => setDatabaseError(String(error)));
   }, [refreshSessions]);
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    let cancelled = false;
+    loadUserAudioLibrary()
+      .then((recordings) => { if (!cancelled) setUserAudioRecordings(recordings); })
+      .catch((error) => { if (!cancelled) setFocusAudioError(`Unable to load the local audio library: ${String(error)}`); });
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     if (state.status !== "running") return;
@@ -221,7 +238,7 @@ export default function App() {
     });
 
     return () => { cancelled = true; };
-  }, [effectiveFocusAudio?.track.path, effectiveFocusAudio?.track.source]);
+  }, [effectiveFocusAudio?.track.libraryPath, effectiveFocusAudio?.track.path, effectiveFocusAudio?.track.source]);
 
   useEffect(() => {
     const audio = focusAudioRef.current;
@@ -251,7 +268,7 @@ export default function App() {
     }
     const timer = window.setTimeout(() => setFocusAudioPreviewing(false), 8_000);
     return () => window.clearTimeout(timer);
-  }, [effectiveFocusAudio?.track.path, effectiveFocusAudio?.track.source, focusAudioPreviewing, hudPopover, state.status]);
+  }, [effectiveFocusAudio?.track.libraryPath, effectiveFocusAudio?.track.path, effectiveFocusAudio?.track.source, focusAudioPreviewing, hudPopover, state.status]);
 
   useEffect(() => {
     if (!activePlan) setHudPopover(null);
@@ -583,7 +600,7 @@ export default function App() {
       return;
     }
     const currentTrack = effectiveFocusAudio?.track;
-    const isSelected = currentTrack?.path === track.path && currentTrack?.source === track.source;
+    const isSelected = isSameFocusAudioTrack(currentTrack, track);
     if (state.status !== "running" && isSelected && focusAudioPreviewing) {
       setFocusAudioPreviewing(false);
       return;
@@ -614,9 +631,48 @@ export default function App() {
         filters: [{ name: "Audio recordings", extensions: [...FOCUS_AUDIO_EXTENSIONS] }],
       });
       if (typeof selected !== "string") return;
-      selectFocusAudioTrack({ name: selected.split(/[\\/]/).pop() || "Local recording", path: selected });
+      setFocusAudioLibraryBusy(true);
+      setFocusAudioError("");
+      const recording = await importUserAudioRecording(selected, selected.split(/[\\/]/).pop() || "Local recording");
+      setUserAudioRecordings((recordings) => [...recordings, recording]);
+      selectFocusAudioTrack(toFocusAudioTrack(recording));
     } catch (error) {
-      setFocusAudioError(`Unable to open this recording: ${String(error)}`);
+      setFocusAudioError(`Unable to add this recording: ${String(error)}`);
+    } finally {
+      setFocusAudioLibraryBusy(false);
+    }
+  };
+
+  const renameActiveRecording = async () => {
+    const selected = userAudioRecordings.find((recording) => recording.id === effectiveFocusAudio?.track.libraryId);
+    if (!selected) return;
+    const name = window.prompt("Rename this recording", selected.name);
+    if (name === null || name.trim() === selected.name) return;
+    try {
+      setFocusAudioLibraryBusy(true);
+      const recordings = await renameUserAudioRecording(selected.id, name);
+      setUserAudioRecordings(recordings);
+      const renamed = recordings.find((recording) => recording.id === selected.id);
+      if (renamed) applyFocusAudioTrack(toFocusAudioTrack(renamed));
+    } catch (error) {
+      setFocusAudioError(`Unable to rename this recording: ${String(error)}`);
+    } finally {
+      setFocusAudioLibraryBusy(false);
+    }
+  };
+
+  const removeActiveRecording = async (recording: UserAudioRecording) => {
+    if (!window.confirm(`Remove “${recording.name}” from DeepHUD? The original file will not be affected.`)) return;
+    try {
+      setFocusAudioLibraryBusy(true);
+      const wasSelected = effectiveFocusAudio?.track.libraryId === recording.id;
+      const recordings = await removeUserAudioRecording(recording);
+      setUserAudioRecordings(recordings);
+      if (wasSelected) selectFocusAudioTrack(null);
+    } catch (error) {
+      setFocusAudioError(`Unable to remove this recording: ${String(error)}`);
+    } finally {
+      setFocusAudioLibraryBusy(false);
     }
   };
 
@@ -722,11 +778,20 @@ export default function App() {
               const selected = effectiveFocusAudio?.track.source === track.source;
               return <button type="button" key={track.name} title={track.name} className={`${selected ? "is-active" : ""} ${selected && focusAudioPreviewing ? "is-previewing" : ""}`} onClick={() => selectFocusAudioTrack(track)}>{track.name}</button>;
             })}
+            {userAudioRecordings.map((recording) => {
+              const track = toFocusAudioTrack(recording);
+              const selected = effectiveFocusAudio?.track.libraryId === recording.id;
+              return <div className="hud-audio-user" key={recording.id}>
+                <button type="button" title={recording.name} className={`hud-audio-user__select ${selected ? "is-active" : ""} ${selected && focusAudioPreviewing ? "is-previewing" : ""}`} onClick={() => selectFocusAudioTrack(track)}>{recording.name}</button>
+                <button type="button" className="hud-audio-user__remove" title={`Remove ${recording.name}`} aria-label={`Remove ${recording.name}`} disabled={focusAudioLibraryBusy} onClick={() => void removeActiveRecording(recording)}>×</button>
+              </div>;
+            })}
           </div>
           <label className="hud-audio-volume"><span>Volume</span><input type="range" min="0" max="100" value={focusAudioVolume} disabled={!effectiveFocusAudio} onChange={(event) => changeFocusAudioVolume(Number(event.target.value))} /><output>{focusAudioVolume}%</output></label>
           <div className="hud-popover__actions">
             <button type="button" disabled={!effectiveFocusAudio} onClick={() => setFocusAudioMuted((muted) => !muted)}>{focusAudioMuted ? "Unmute" : "Mute"}</button>
-            <button type="button" onClick={() => void chooseActiveRecording()}>Choose recording…</button>
+            <button type="button" disabled={!effectiveFocusAudio?.track.libraryId || focusAudioLibraryBusy} onClick={() => void renameActiveRecording()}>Rename</button>
+            <button type="button" disabled={focusAudioLibraryBusy} onClick={() => void chooseActiveRecording()}>{focusAudioLibraryBusy ? "Working…" : "Add recording…"}</button>
           </div>
           <input ref={activeAudioFileRef} className="sr-only" type="file" accept="audio/mpeg,audio/wav,audio/ogg,audio/flac,audio/mp4,audio/aac" onChange={(event) => { setActiveBrowserRecording(event.target.files?.[0]); event.target.value = ""; }} />
         </div>}

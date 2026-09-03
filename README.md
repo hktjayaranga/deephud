@@ -97,7 +97,10 @@ Work, Pomodoro, quick-start, custom, countdown, or stopwatch session. Focus
 audio is off by default and plays entirely on the device.
 
 - Choose the included Heavy rain, Forest, or Calm waterfall field recording,
-  or use a local MP3, WAV, OGG, FLAC, M4A, or AAC file.
+  or add MP3, WAV, OGG, FLAC, M4A, or AAC files to an offline local library.
+  User recordings are copied into DeepHUD's app-data folder and can be renamed
+  or removed without changing the original files; built-in recordings remain
+  protected.
 - Select a recording while the timer is stopped to hear an eight-second
   preview. Choose another recording to switch previews, select the current one
   again to stop, or close the popover to end the preview.

@@ -4,8 +4,12 @@ export type SessionPhase = "work" | "break";
 
 export interface FocusAudioTrack {
   name: string;
-  /** Native file path selected through Tauri's file dialog. */
+  /** Legacy native file path selected through Tauri's file dialog. */
   path?: string;
+  /** Identifier of an audio recording copied into DeepHUD's local library. */
+  libraryId?: string;
+  /** App-data-relative path owned by DeepHUD. */
+  libraryPath?: string;
   /** Temporary object URL used by the browser development build. */
   source?: string;
   /** True only when source is an object URL owned by DeepHUD. */
