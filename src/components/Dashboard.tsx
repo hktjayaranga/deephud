@@ -9,13 +9,14 @@ interface Props {
   onExport: (format: "csv" | "json") => Promise<void>;
   onBackup: () => Promise<void>;
   onRestore: () => Promise<void>;
+  onResetDatabase: () => Promise<void>;
   onClose: () => void;
   onDragStart: () => void;
 }
 
 type Tab = "overview" | "history" | "projects";
 
-export default function Dashboard({ sessions, goalMinutes, onDelete, onUpdate, onExport, onBackup, onRestore, onClose, onDragStart }: Props) {
+export default function Dashboard({ sessions, goalMinutes, onDelete, onUpdate, onExport, onBackup, onRestore, onResetDatabase, onClose, onDragStart }: Props) {
   const [tab, setTab] = useState<Tab>("overview");
   const [search, setSearch] = useState("");
   const [projectFilter, setProjectFilter] = useState("");
@@ -58,7 +59,7 @@ export default function Dashboard({ sessions, goalMinutes, onDelete, onUpdate, o
       {tab === "history" && <section className="dashboard-section dashboard-section--flush">
         <div className="section-title"><h2>Session history</h2><span>{filteredSessions.length} shown</span></div>
         <div className="history-filters"><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search task or project" /><select value={projectFilter} onChange={(event) => setProjectFilter(event.target.value)}><option value="">All projects</option>{projectNames.map((project) => <option key={project}>{project}</option>)}</select><input type="date" value={dateFilter} onChange={(event) => setDateFilter(event.target.value)} /></div>
-        <div className="data-actions"><button onClick={() => run(() => onExport("csv"))}>Export CSV</button><button onClick={() => run(() => onExport("json"))}>Export JSON</button><button onClick={() => run(onBackup)}>Backup</button><button onClick={() => run(onRestore)}>Restore</button></div>
+        <div className="data-actions"><button onClick={() => run(() => onExport("csv"))}>Export CSV</button><button onClick={() => run(() => onExport("json"))}>Export JSON</button><button onClick={() => run(onBackup)}>Backup</button><button onClick={() => run(onRestore)}>Restore</button><button className="danger-action" onClick={() => run(onResetDatabase)}>Reset database</button></div>
         {actionError && <p className="inline-error">{actionError}</p>}
         <HistoryList sessions={filteredSessions} onDelete={onDelete} onEdit={setEditing} />
       </section>}

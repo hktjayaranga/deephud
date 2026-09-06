@@ -11,7 +11,7 @@ import Controls from "./components/Controls";
 import Dashboard from "./components/Dashboard";
 import SessionLauncher from "./components/SessionLauncher";
 import SettingsPanel from "./components/SettingsPanel";
-import { ProjectRecord, SessionRecord, deleteSession, ensureProjectTask, getProjects, getSessions, initializeDatabase, replaceSessions, saveSession, updateSession } from "./services/database";
+import { ProjectRecord, SessionRecord, deleteSession, ensureProjectTask, getProjects, getSessions, initializeDatabase, replaceSessions, resetDatabase, saveSession, updateSession } from "./services/database";
 import { createBackup, exportSessions, selectBackup } from "./services/dataTransfer";
 import { FOCUS_AUDIO_EXTENSIONS, RECORDED_FOCUS_PRESETS, UserAudioRecording, importUserAudioRecording, isSupportedRecording, loadFocusAudioPreference, loadUserAudioLibrary, removeUserAudioRecording, renameUserAudioRecording, resolveFocusAudio, saveFocusAudioPreference, saveFocusAudioVolume, toFocusAudioTrack } from "./services/focusAudio";
 import { playChime, notify, unlockAudio } from "./services/notifications";
@@ -295,6 +295,18 @@ export default function App() {
     if (state.status !== "running" && !activePlan) {
       const preference = loadFocusAudioPreference();
       const audio = preference.track ? { track: preference.track, volume: preference.volume, pauseWithTimer: true } : null;
+      const quickSession: SessionPlan = {
+        kind: state.mode === "stopwatch" ? "stopwatch" : "deep-work",
+        workMinutes: state.mode === "countdown" ? Math.round(state.targetMs / 60_000) : 0,
+        breakMinutes: settings.pomodoroBreakMinutes,
+        phase: "work",
+        project: "",
+        task: sessionName.trim(),
+        startedAt: new Date().toISOString(),
+        cycle: 1,
+        focusAudio: audio,
+      };
+      setActivePlan(quickSession);
       setStandaloneFocusAudio(audio);
       setFocusAudioVolume(preference.volume);
       setFocusAudioMuted(false);
@@ -312,16 +324,36 @@ export default function App() {
       }
       return { ...previous, elapsedMs: previous.status === "finished" ? 0 : previous.elapsedMs, status: pausing ? "paused" : "running" };
     });
-  }, [activePlan, settings.notifications, settings.trackPausedTime, state.status]);
+  }, [activePlan, sessionName, settings.notifications, settings.pomodoroBreakMinutes, settings.trackPausedTime, state.mode, state.status, state.targetMs]);
 
-  const cancelOrReset = useCallback(() => {
-    if (activePlan && state.elapsedMs > 0 && !window.confirm("End this session without adding it to history?")) return;
+  const cancelOrReset = useCallback(async () => {
+    if (activePlan?.phase === "work" && state.elapsedMs > 0) {
+      const focusSeconds = Math.max(1, Math.round(state.elapsedMs / 1000));
+      if (!window.confirm(`End this session and save ${focusSeconds < 60 ? `${focusSeconds} sec` : `${Math.round(focusSeconds / 60)} min`} of focused time to history?`)) return;
+      const record: SessionRecord = {
+        startedAt: activePlan.startedAt,
+        endedAt: new Date().toISOString(),
+        plannedMinutes: activePlan.workMinutes,
+        focusSeconds,
+        pausedSeconds: Math.round((pausedMsRef.current + (settings.trackPausedTime && pauseStartedRef.current !== null ? performance.now() - pauseStartedRef.current : 0)) / 1000),
+        project: activePlan.project,
+        task: activePlan.task,
+        sessionKind: activePlan.kind,
+      };
+      try {
+        await saveSession(record);
+        await refreshSessions();
+      } catch (error) {
+        setDatabaseError(String(error));
+        return;
+      }
+    } else if (activePlan && !window.confirm("End this session?")) return;
     setActivePlan(null);
     setCompletion(null);
     pausedMsRef.current = 0;
     pauseStartedRef.current = null;
     setState(initialTimerState(settings.defaultMode, settings.defaultDuration));
-  }, [activePlan, state.elapsedMs, settings.defaultMode, settings.defaultDuration]);
+  }, [activePlan, refreshSessions, state.elapsedMs, settings.defaultMode, settings.defaultDuration, settings.trackPausedTime]);
 
   const toggleClickThrough = useCallback(() => setSettings((previous) => ({ ...previous, clickThrough: !previous.clickThrough })), []);
 
@@ -734,6 +766,15 @@ export default function App() {
       setSettings((previous) => ({ ...previous, ...backup.settings, shortcuts: { ...previous.shortcuts, ...backup.settings.shortcuts } }));
       await refreshSessions();
     }}
+    onResetDatabase={async () => {
+      const message = "Permanently delete all focus sessions and all saved project/task suggestions? Your settings and audio recordings will not be changed.";
+      const approved = isTauri()
+        ? await confirm(message, { title: "Reset DeepHUD database", kind: "warning" })
+        : window.confirm(message);
+      if (!approved) return;
+      await resetDatabase();
+      await refreshSessions();
+    }}
     onClose={() => setView("hud")}
     onDragStart={dragStart}
   /></main>;
@@ -798,7 +839,7 @@ export default function App() {
         {activePlan && hudPopover === "more" && <div className="hud-popover hud-popover--more" role="dialog" aria-label="More session controls">
           <div className="hud-popover__header"><span>Session controls</span><button type="button" onClick={() => setHudPopover(null)} aria-label="Close more controls">×</button></div>
           <div className="hud-time-adjust"><span>Adjust remaining time</span><div><button type="button" onClick={() => adjustActiveTime(-5)}>−5 min</button><button type="button" onClick={() => adjustActiveTime(5)}>+5 min</button>{activePlan.kind === "pomodoro" && <button type="button" onClick={() => { skipInterval(); setHudPopover(null); }}>Skip</button>}</div></div>
-          <div className="hud-popover__actions"><button type="button" onClick={() => { setHudPopover(null); setView("dashboard"); }}>Dashboard</button><button type="button" onClick={() => { setHudPopover(null); setView("settings"); }}>Settings</button></div>
+          <div className="hud-popover__actions"><button type="button" onClick={() => void cancelOrReset()}>End &amp; save</button><button type="button" onClick={() => { setHudPopover(null); setView("dashboard"); }}>Dashboard</button><button type="button" onClick={() => { setHudPopover(null); setView("settings"); }}>Settings</button></div>
         </div>}
         <Controls status={state.status} activeSession={Boolean(activePlan)} onStartPause={handleStartPause} onReset={cancelOrReset} onNewSession={() => setView("launcher")} onDashboard={() => setView("dashboard")} onOpenSettings={() => setView("settings")} onExpand={expandHud} audioPlaying={focusAudioIsPlaying} openPopover={hudPopover} onAudio={toggleAudioPopover} onMore={() => setHudPopover((openPopover) => openPopover === "more" ? null : "more")} />
       </div>

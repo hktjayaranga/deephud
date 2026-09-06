@@ -333,6 +333,8 @@ kbd { min-width: 23px; padding: 4px 5px; border: 1px solid var(--line); border-b
 .data-actions { display: flex; gap: 5px; margin-bottom: 9px; }
 .data-actions button { flex: 1; padding: 6px 4px; border: 1px solid var(--line); border-radius: 7px; background: var(--button); color: var(--muted); font-size: 7px; cursor: pointer; }
 .data-actions button:hover { color: var(--text); border-color: rgba(var(--accent-rgb), .4); }
+.data-actions .danger-action { color: #f56e6e; border-color: rgba(245, 110, 110, .35); }
+.data-actions .danger-action:hover { color: #ff8a8a; border-color: rgba(245, 110, 110, .7); }
 .inline-error { margin-bottom: 8px; padding: 7px; border-radius: 7px; background: rgba(245, 110, 110, .1); color: #f56e6e; font-size: 8px; }
 .edit-session { width: 100%; max-width: 420px; padding: 18px; border: 1px solid var(--line); border-radius: 15px; background: var(--surface); box-shadow: 0 25px 70px rgba(0, 0, 0, .45); }
 .edit-session h2 { margin-bottom: 13px; font-size: 15px; }

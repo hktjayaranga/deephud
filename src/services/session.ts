@@ -23,7 +23,7 @@ export interface FocusAudioPlan {
 }
 
 export interface SessionPlan {
-  kind: Exclude<SessionKind, "stopwatch">;
+  kind: SessionKind;
   workMinutes: number;
   breakMinutes: number;
   phase: SessionPhase;

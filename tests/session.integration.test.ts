@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { getSessions, saveSession } from "../src/services/database";
+import { getSessions, resetDatabase, saveSession } from "../src/services/database";
 import { advanceElapsed, hasFinished } from "../src/services/timerMath";
 
 describe("timer → session → local repository", () => {
@@ -12,5 +12,11 @@ describe("timer → session → local repository", () => {
     const sessions = await getSessions();
     expect(sessions).toHaveLength(1);
     expect(sessions[0]).toMatchObject({ project: "DeepHUD", focusSeconds: 1500, sessionKind: "pomodoro" });
+  });
+
+  it("resets all locally stored session records", async () => {
+    await saveSession({ startedAt: "2026-08-31T09:00:00.000Z", endedAt: "2026-08-31T09:25:00.000Z", plannedMinutes: 25, focusSeconds: 1500, pausedSeconds: 0, project: "DeepHUD", task: "Reset test", sessionKind: "deep-work" });
+    await resetDatabase();
+    expect(await getSessions()).toEqual([]);
   });
 });

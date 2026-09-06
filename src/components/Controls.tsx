@@ -32,7 +32,7 @@ function Icon({ name }: { name: IconName }) {
 
 export default function Controls({ status, activeSession, onStartPause, onReset, onNewSession, onDashboard, onOpenSettings, onExpand, audioPlaying = false, openPopover = null, onAudio, onMore }: ControlsProps) {
   const primaryLabel = status === "running" ? "Pause" : "Start";
-  const resetLabel = activeSession ? "End session" : "Reset";
+  const resetLabel = activeSession ? "End & save session" : "Reset";
   return <div className="controls">
     <button className="controls__primary" onClick={onStartPause} title={primaryLabel} aria-label={primaryLabel}><Icon name={status === "running" ? "pause" : "play"} /></button>
     <button className="control-reset" onClick={onReset} title={resetLabel} aria-label={resetLabel}><Icon name={activeSession ? "close" : "reset"} /></button>

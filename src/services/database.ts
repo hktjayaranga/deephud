@@ -65,6 +65,14 @@ export async function deleteSession(id: number): Promise<void> {
   await invoke("delete_session", { id });
 }
 
+export async function resetDatabase(): Promise<void> {
+  if (!inTauri()) {
+    localStorage.removeItem(FALLBACK_KEY);
+    return;
+  }
+  await invoke("reset_database");
+}
+
 export async function replaceSessions(sessions: SessionRecord[]): Promise<void> {
   const validated = sessions.map(validateSession);
   if (!inTauri()) {

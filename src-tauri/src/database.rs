@@ -223,6 +223,28 @@ pub async fn delete_session(instances: State<'_, DbInstances>, id: i64) -> Resul
 }
 
 #[tauri::command]
+pub async fn reset_database(instances: State<'_, DbInstances>) -> Result<(), String> {
+    let pool = sqlite_pool(&instances).await?;
+    let mut transaction = pool.begin().await.map_err(|error| error.to_string())?;
+    sqlx::query("DELETE FROM tasks")
+        .execute(&mut *transaction)
+        .await
+        .map_err(|error| error.to_string())?;
+    sqlx::query("DELETE FROM sessions")
+        .execute(&mut *transaction)
+        .await
+        .map_err(|error| error.to_string())?;
+    sqlx::query("DELETE FROM projects")
+        .execute(&mut *transaction)
+        .await
+        .map_err(|error| error.to_string())?;
+    transaction
+        .commit()
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 pub async fn replace_sessions(
     instances: State<'_, DbInstances>,
     sessions: Vec<SessionRecord>,

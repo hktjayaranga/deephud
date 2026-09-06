@@ -103,6 +103,7 @@ pub fn run() {
             database::update_session,
             database::get_sessions,
             database::delete_session,
+            database::reset_database,
             database::replace_sessions,
             database::ensure_project_task,
             database::get_projects
