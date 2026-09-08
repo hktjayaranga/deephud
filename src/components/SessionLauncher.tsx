@@ -69,6 +69,7 @@ export default function SessionLauncher({ settings, projects, initialTask, onSta
         <label><span>Task</span><input list="task-options" value={task} onChange={(event) => setTask(event.target.value)} placeholder="e.g. Implement audit events" autoFocus /><datalist id="task-options">{taskSuggestions.map((item) => <option key={item.id} value={item.name} />)}</datalist></label>
       </div>
 
+      {kind === "pomodoro" && <p className="long-break-hint">{Math.max(breakMinutes + 1, settings.longBreakMinutes)}-minute long break after every {settings.cyclesBeforeLongBreak} completed cycles.</p>}
       <button className="start-session" onClick={start}><span>Start {kind === "deep-work" ? "Deep Work" : "Focus Interval"}</span><small>{workMinutes} min{kind === "pomodoro" ? ` · then ${breakMinutes} min break` : ""}</small></button>
     </div>
   </section>;

@@ -29,9 +29,13 @@ export interface Settings {
   defaultDuration: number;
   pomodoroWorkMinutes: number;
   pomodoroBreakMinutes: number;
+  longBreakMinutes: number;
+  cyclesBeforeLongBreak: number;
   autoStartBreak: boolean;
   autoStartWork: boolean;
   notifications: boolean;
+  motivationalMessages: boolean;
+  reminderNotifications: boolean;
   fiveMinuteWarning: boolean;
   sound: boolean;
   volume: number;
@@ -60,9 +64,13 @@ export const defaultSettings: Settings = {
   defaultDuration: 90,
   pomodoroWorkMinutes: 50,
   pomodoroBreakMinutes: 10,
+  longBreakMinutes: 20,
+  cyclesBeforeLongBreak: 4,
   autoStartBreak: false,
   autoStartWork: false,
   notifications: true,
+  motivationalMessages: true,
+  reminderNotifications: false,
   fiveMinuteWarning: true,
   sound: true,
   volume: 55,
@@ -128,9 +136,13 @@ export function validateSettings(value: unknown): Settings {
     defaultDuration: boundedInteger(value.defaultDuration, 1, 1440, "defaultDuration"),
     pomodoroWorkMinutes: boundedInteger(value.pomodoroWorkMinutes, 1, 240, "pomodoroWorkMinutes"),
     pomodoroBreakMinutes: boundedInteger(value.pomodoroBreakMinutes, 1, 120, "pomodoroBreakMinutes"),
+    longBreakMinutes: value.longBreakMinutes === undefined ? defaultSettings.longBreakMinutes : boundedInteger(value.longBreakMinutes, 1, 240, "longBreakMinutes"),
+    cyclesBeforeLongBreak: value.cyclesBeforeLongBreak === undefined ? defaultSettings.cyclesBeforeLongBreak : boundedInteger(value.cyclesBeforeLongBreak, 1, 12, "cyclesBeforeLongBreak"),
     autoStartBreak: booleanSetting(value.autoStartBreak, "autoStartBreak"),
     autoStartWork: booleanSetting(value.autoStartWork, "autoStartWork"),
     notifications: booleanSetting(value.notifications, "notifications"),
+    motivationalMessages: value.motivationalMessages === undefined ? defaultSettings.motivationalMessages : booleanSetting(value.motivationalMessages, "motivationalMessages"),
+    reminderNotifications: value.reminderNotifications === undefined ? defaultSettings.reminderNotifications : booleanSetting(value.reminderNotifications, "reminderNotifications"),
     fiveMinuteWarning: booleanSetting(value.fiveMinuteWarning, "fiveMinuteWarning"),
     sound: booleanSetting(value.sound, "sound"),
     volume: boundedInteger(value.volume, 0, 100, "volume"),

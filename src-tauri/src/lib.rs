@@ -92,6 +92,14 @@ pub fn run() {
             "#,
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 3,
+            description: "group_focus_cycles",
+            sql: "ALTER TABLE sessions ADD COLUMN work_session_id TEXT;
+                  ALTER TABLE sessions ADD COLUMN work_session_ended_at TEXT;
+                  ALTER TABLE sessions ADD COLUMN cycle_completed INTEGER;",
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()

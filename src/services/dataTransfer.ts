@@ -1,6 +1,6 @@
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { readTextFile, stat, writeTextFile } from "@tauri-apps/plugin-fs";
-import { SessionRecord } from "./database";
+import { SessionRecord, validateSessionGrouping } from "./database";
 import { Settings, validateSettings } from "./settings";
 
 export const MAX_BACKUP_BYTES = 10 * 1024 * 1024;
@@ -68,6 +68,7 @@ function validateBackupSession(value: unknown, index: number, now: number): Sess
   };
   if (value.sessionKind !== "deep-work" && value.sessionKind !== "pomodoro" && value.sessionKind !== "stopwatch") throw new Error(`Backup session ${index + 1} has an invalid type`);
   return {
+    ...validateSessionGrouping(value),
     startedAt,
     endedAt,
     plannedMinutes: integer("plannedMinutes", 1440),

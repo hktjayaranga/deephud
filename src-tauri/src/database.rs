@@ -12,6 +12,9 @@ const MAX_SESSIONS_PER_RESTORE: usize = 50_000;
 #[serde(rename_all = "camelCase")]
 pub struct SessionRecord {
     pub id: Option<i64>,
+    pub work_session_id: Option<String>,
+    pub work_session_ended_at: Option<String>,
+    pub cycle_completed: Option<bool>,
     pub started_at: String,
     pub ended_at: String,
     pub planned_minutes: i64,
@@ -70,6 +73,14 @@ fn validate_session(session: &SessionRecord, require_id: bool) -> Result<(), Str
     {
         return Err("Invalid session values".into());
     }
+    if let Some(id) = &session.work_session_id {
+        if id.is_empty() || id.len() > 100 || id.contains('\0') {
+            return Err("Invalid work session id".into());
+        }
+    }
+    if let Some(end) = &session.work_session_ended_at {
+        DateTime::parse_from_rfc3339(end).map_err(|_| "Invalid work session end")?;
+    }
     Ok(())
 }
 
@@ -108,8 +119,8 @@ async fn insert_session(
     let connection = transaction.acquire().await?;
     sqlx::query(
         "INSERT INTO sessions \
-         (started_at, ended_at, planned_minutes, focus_seconds, paused_seconds, project, task, session_kind) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+         (started_at, ended_at, planned_minutes, focus_seconds, paused_seconds, project, task, session_kind, work_session_id, work_session_ended_at, cycle_completed) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
     )
     .bind(&session.started_at)
     .bind(&session.ended_at)
@@ -119,6 +130,9 @@ async fn insert_session(
     .bind(&session.project)
     .bind(&session.task)
     .bind(&session.session_kind)
+    .bind(&session.work_session_id)
+    .bind(&session.work_session_ended_at)
+    .bind(session.cycle_completed)
     .execute(&mut *connection)
     .await?;
     add_project_task(transaction, &session.project, &session.task).await
@@ -156,7 +170,7 @@ pub async fn update_session(
     let mut transaction = pool.begin().await.map_err(|error| error.to_string())?;
     let result = sqlx::query(
         "UPDATE sessions SET started_at = ?1, ended_at = ?2, planned_minutes = ?3, \
-         focus_seconds = ?4, paused_seconds = ?5, project = ?6, task = ?7, session_kind = ?8 WHERE id = ?9",
+         focus_seconds = ?4, paused_seconds = ?5, project = ?6, task = ?7, session_kind = ?8, work_session_id = ?9, work_session_ended_at = ?10, cycle_completed = ?11 WHERE id = ?12",
     )
     .bind(&session.started_at)
     .bind(&session.ended_at)
@@ -166,6 +180,9 @@ pub async fn update_session(
     .bind(&session.project)
     .bind(&session.task)
     .bind(&session.session_kind)
+    .bind(&session.work_session_id)
+    .bind(&session.work_session_ended_at)
+    .bind(session.cycle_completed)
     .bind(session.id)
     .execute(&mut *transaction)
     .await
@@ -186,7 +203,7 @@ pub async fn update_session(
 pub async fn get_sessions(instances: State<'_, DbInstances>) -> Result<Vec<SessionRecord>, String> {
     let pool = sqlite_pool(&instances).await?;
     let rows = sqlx::query(
-        "SELECT id, started_at, ended_at, planned_minutes, focus_seconds, paused_seconds, project, task, session_kind \
+        "SELECT id, started_at, ended_at, planned_minutes, focus_seconds, paused_seconds, project, task, session_kind, work_session_id, work_session_ended_at, cycle_completed \
          FROM sessions ORDER BY started_at DESC",
     )
     .fetch_all(&pool)
@@ -196,6 +213,9 @@ pub async fn get_sessions(instances: State<'_, DbInstances>) -> Result<Vec<Sessi
         .into_iter()
         .map(|row| SessionRecord {
             id: Some(row.get("id")),
+            work_session_id: row.get("work_session_id"),
+            work_session_ended_at: row.get("work_session_ended_at"),
+            cycle_completed: row.get("cycle_completed"),
             started_at: row.get("started_at"),
             ended_at: row.get("ended_at"),
             planned_minutes: row.get("planned_minutes"),

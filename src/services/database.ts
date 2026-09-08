@@ -4,6 +4,9 @@ export type SessionKind = "deep-work" | "pomodoro" | "stopwatch";
 
 export interface SessionRecord {
   id?: number;
+  workSessionId?: string | null;
+  workSessionEndedAt?: string | null;
+  cycleCompleted?: boolean | null;
   startedAt: string;
   endedAt: string;
   plannedMinutes: number;
@@ -31,7 +34,7 @@ export async function initializeDatabase() {
 export async function saveSession(session: SessionRecord): Promise<void> {
   if (!inTauri()) {
     const sessions = await getSessions();
-    sessions.unshift({ ...session, id: Date.now() });
+    sessions.unshift({ ...session, id: Math.max(Date.now(), ...sessions.map((item) => (item.id ?? 0) + 1)) });
     localStorage.setItem(FALLBACK_KEY, JSON.stringify(sessions));
     return;
   }
@@ -100,6 +103,7 @@ export async function getProjects(): Promise<ProjectRecord[]> {
 function validateSession(value: SessionRecord): SessionRecord {
   if (!value || !Number.isInteger(value.focusSeconds) || value.focusSeconds < 0 || value.focusSeconds > 365 * 24 * 60 * 60 || !Number.isInteger(value.pausedSeconds) || value.pausedSeconds < 0 || value.pausedSeconds > 365 * 24 * 60 * 60 || !Number.isInteger(value.plannedMinutes) || value.plannedMinutes < 0 || value.plannedMinutes > 1440 || Number.isNaN(Date.parse(value.startedAt)) || Number.isNaN(Date.parse(value.endedAt)) || Date.parse(value.endedAt) < Date.parse(value.startedAt) || typeof value.project !== "string" || value.project.length > 200 || typeof value.task !== "string" || value.task.length > 500 || !["deep-work", "pomodoro", "stopwatch"].includes(value.sessionKind)) throw new Error("Backup contains an invalid session record");
   return {
+    ...validateSessionGrouping(value),
     startedAt: value.startedAt,
     endedAt: value.endedAt,
     plannedMinutes: value.plannedMinutes,
@@ -109,4 +113,13 @@ function validateSession(value: SessionRecord): SessionRecord {
     task: value.task,
     sessionKind: value.sessionKind,
   };
+}
+
+/** Optional metadata keeps existing records and v1 backups compatible. */
+export function validateSessionGrouping(value: { workSessionId?: unknown; workSessionEndedAt?: unknown; cycleCompleted?: unknown }) {
+  const { workSessionId, workSessionEndedAt, cycleCompleted } = value;
+  if (workSessionId != null && (typeof workSessionId !== "string" || !workSessionId.length || workSessionId.length > 100 || workSessionId.includes("\0"))) throw new Error("Invalid work session id");
+  if (workSessionEndedAt != null && (typeof workSessionEndedAt !== "string" || workSessionEndedAt.length > 40 || !Number.isFinite(Date.parse(workSessionEndedAt)))) throw new Error("Invalid work session end");
+  if (cycleCompleted != null && typeof cycleCompleted !== "boolean") throw new Error("Invalid cycle completion");
+  return { workSessionId: workSessionId as string | undefined | null, workSessionEndedAt: workSessionEndedAt as string | undefined | null, cycleCompleted: cycleCompleted as boolean | undefined | null };
 }

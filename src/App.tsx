@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { LogicalPosition, LogicalSize, PhysicalPosition } from "@tauri-apps/api/dpi";
@@ -15,14 +15,22 @@ import { ProjectRecord, SessionRecord, deleteSession, ensureProjectTask, getProj
 import { createBackup, exportSessions, selectBackup } from "./services/dataTransfer";
 import { FOCUS_AUDIO_EXTENSIONS, RECORDED_FOCUS_PRESETS, UserAudioRecording, importUserAudioRecording, isSupportedRecording, loadFocusAudioPreference, loadUserAudioLibrary, removeUserAudioRecording, renameUserAudioRecording, resolveFocusAudio, saveFocusAudioPreference, saveFocusAudioVolume, toFocusAudioTrack } from "./services/focusAudio";
 import { playChime, notify, unlockAudio } from "./services/notifications";
-import { FocusAudioPlan, FocusAudioTrack, SessionPhase, SessionPlan } from "./services/session";
+import { FocusAudioPlan, FocusAudioTrack, SessionPhase, SessionPlan, completeFocusCycle, nextBreak, transitionSessionPhase } from "./services/session";
 import { TimerState, initialTimerState } from "./services/timer";
 import { adjustedTarget, advanceElapsed, hasFinished } from "./services/timerMath";
 import { HudPosition, Settings, loadSettings, saveSettings } from "./services/settings";
 import "./App.css";
 
+import { focusCompletionNotice, isFocusReminderDue } from "./services/notificationPolicy";
+
+import { sessionProgress } from "./services/sessionProgress";
+import StatusToast from "./components/StatusToast";
+import SessionRecovery from "./components/SessionRecovery";
+import ErrorNotice from "./components/ErrorNotice";
+import { SessionSnapshot, clearSessionSnapshot, loadSessionSnapshot, reconcileSessionSnapshot, resumeSessionSnapshot, saveSessionSnapshot, savedRecoveryCycle } from "./services/sessionRecovery";
+
 type View = "hud" | "launcher" | "dashboard" | "settings";
-type Completion = { phase: "deep" | SessionPhase; title: string; body: string };
+type Completion = { phase: "save-error" | SessionPhase; title: string; body: string };
 
 const isTauri = () => "__TAURI_INTERNALS__" in window;
 const appWindow = isTauri() ? getCurrentWindow() : null;
@@ -48,17 +56,30 @@ export default function App() {
   const [settings, setSettings] = useState<Settings>(loadSettings);
   const [state, setState] = useState<TimerState>(() => initialTimerState(settings.defaultMode, settings.defaultDuration));
   const [sessionName, setSessionName] = useState(() => localStorage.getItem("deepwork-hud:session") ?? "");
+  const [recovery, setRecovery] = useState(loadSessionSnapshot);
+  const [recoveryChecked, setRecoveryChecked] = useState(false);
+  const [recoveryBusy, setRecoveryBusy] = useState(false);
+  const [recoveryError, setRecoveryError] = useState("");
+  const savedCycleKeyRef = useRef("");
+  const snapshotRef = useRef<SessionSnapshot | null>(null);
+  const lastSnapshotRef = useRef<{ at: number; plan: SessionPlan; status: string; targetMs: number } | null>(null);
   const [activePlan, setActivePlan] = useState<SessionPlan | null>(null);
   const [sessions, setSessions] = useState<SessionRecord[]>([]);
+  const progressRecords = useMemo(() => activePlan?.workSessionId ? sessions.filter((record) => record.workSessionId === activePlan.workSessionId) : [], [sessions, activePlan?.workSessionId]);
   const [projects, setProjects] = useState<ProjectRecord[]>([]);
   const [view, setView] = useState<View>("hud");
   const [completion, setCompletion] = useState<Completion | null>(null);
   const [customPresetOpen, setCustomPresetOpen] = useState(false);
   const [customMinutes, setCustomMinutes] = useState(settings.defaultDuration);
   const [shortcutError, setShortcutError] = useState("");
+  const [shortcutRetry, setShortcutRetry] = useState(0);
+  const [historyReloadNotice, setHistoryReloadNotice] = useState("");
   const [shortcutRecording, setShortcutRecording] = useState(false);
   const [clickThroughNotice, setClickThroughNotice] = useState(false);
   const [databaseError, setDatabaseError] = useState("");
+  const [statusNotice, setStatusNotice] = useState<{ text: string; id: number } | null>(null);
+  const showStatus = useCallback((text: string) => setStatusNotice((previous) => ({ text, id: (previous?.id ?? 0) + 1 })), []);
+  const dismissStatus = useCallback(() => setStatusNotice(null), []);
   const lastTickRef = useRef(0);
   const pauseStartedRef = useRef<number | null>(null);
   const pausedMsRef = useRef(0);
@@ -96,8 +117,114 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    initializeDatabase().then(refreshSessions).catch((error) => setDatabaseError(String(error)));
+    let cancelled = false;
+    const initialize = async () => {
+      try {
+        await initializeDatabase();
+        const records = await getSessions();
+        if (cancelled) return;
+        const pending = loadSessionSnapshot();
+        const reconciled = pending ? reconcileSessionSnapshot(pending, records) : null;
+        if (pending && !reconciled) clearSessionSnapshot();
+        setRecovery(reconciled);
+        setRecoveryChecked(true);
+        await refreshSessions();
+      } catch (error) {
+        if (!cancelled) { setRecoveryError(String(error)); setDatabaseError(String(error)); setRecoveryChecked(true); }
+      }
+    };
+    void initialize();
+    return () => { cancelled = true; };
   }, [refreshSessions]);
+
+  useEffect(() => {
+    if (recovery || !recoveryChecked) return;
+    try {
+      if (!activePlan) {
+        snapshotRef.current = null;
+        lastSnapshotRef.current = null;
+        clearSessionSnapshot();
+        return;
+      }
+      const now = Date.now();
+      const snapshot: SessionSnapshot = {
+        version: 1, savedAt: now, plan: activePlan, timer: state,
+        pausedMs: pausedMsRef.current + (settings.trackPausedTime && pauseStartedRef.current !== null ? performance.now() - pauseStartedRef.current : 0),
+        warningShown: warningKeyRef.current === `${activePlan.startedAt}:warning`,
+      };
+      snapshotRef.current = snapshot;
+      const last = lastSnapshotRef.current;
+      if (!last || last.plan !== activePlan || last.status !== state.status || last.targetMs !== state.targetMs || now - last.at >= 1000) {
+        saveSessionSnapshot(snapshot);
+        lastSnapshotRef.current = { at: now, plan: activePlan, status: state.status, targetMs: state.targetMs };
+      }
+    } catch (error) { setDatabaseError(`Session recovery unavailable: ${String(error)}`); }
+  }, [activePlan, state, recovery, recoveryChecked, settings.trackPausedTime]);
+
+  useEffect(() => {
+    const checkpoint = () => {
+      if (!snapshotRef.current) return;
+      try { saveSessionSnapshot(snapshotRef.current); }
+      catch (error) { console.warn("Unable to checkpoint session", error); }
+    };
+    window.addEventListener("pagehide", checkpoint);
+    window.addEventListener("beforeunload", checkpoint);
+    return () => { window.removeEventListener("pagehide", checkpoint); window.removeEventListener("beforeunload", checkpoint); };
+  }, []);
+
+  const recoverSession = async (includeTimeAway: boolean) => {
+    if (!recovery || recoveryBusy) return;
+    setRecoveryBusy(true);
+    setRecoveryError("");
+    try {
+      await initializeDatabase();
+      const records = await getSessions();
+      const pending = reconcileSessionSnapshot(recovery, records);
+      if (!pending) {
+        clearSessionSnapshot();
+        setRecovery(null);
+        showStatus("This session was already saved");
+        return;
+      }
+      const restored = resumeSessionSnapshot(pending, includeTimeAway, Date.now(), settings.trackPausedTime);
+      const key = `${restored.plan.startedAt}:${restored.plan.phase}`;
+      savedCycleKeyRef.current = savedRecoveryCycle(pending, records) ? key : "";
+      completionKeyRef.current = "";
+      warningKeyRef.current = pending.warningShown ? `${restored.plan.startedAt}:warning` : "";
+      pausedMsRef.current = restored.pausedMs;
+      pauseStartedRef.current = null;
+      lastTickRef.current = 0;
+      // Write the user's choice before restarting the timer, including another immediate crash.
+      saveSessionSnapshot({ ...pending, timer: restored.timer, pausedMs: restored.pausedMs, savedAt: Date.now() });
+      setActivePlan(restored.plan);
+      setSessionName(restored.plan.task);
+      setFocusAudioVolume(restored.plan.focusAudio?.volume ?? 55);
+      setFocusAudioMuted(false);
+      setFocusAudioError("");
+      setState(restored.timer);
+      setCompletion(null);
+      setRecovery(null);
+      setView("hud");
+      showStatus("Session recovered");
+    } catch (error) { setRecoveryError(String(error)); }
+    finally { setRecoveryBusy(false); }
+  };
+
+  const discardRecovery = async () => {
+    if (!recovery || recoveryBusy) return;
+    if (!window.confirm("Discard this unfinished interval? Previously saved cycles will stay in history.")) return;
+    setRecoveryBusy(true);
+    try {
+      const records = (await getSessions()).filter((record) => record.workSessionId === recovery.plan.workSessionId);
+      const last = records.sort((a, b) => Date.parse(b.endedAt) - Date.parse(a.endedAt))[0];
+      if (last && !last.workSessionEndedAt) await updateSession({ ...last, workSessionEndedAt: new Date(Math.max(recovery.savedAt, Date.parse(last.endedAt))).toISOString() });
+      clearSessionSnapshot();
+      setRecovery(null);
+      setRecoveryError("");
+      await refreshSessions();
+    } catch (error) { setRecoveryError(String(error)); }
+    finally { setRecoveryBusy(false); }
+  };
 
   useEffect(() => {
     if (!isTauri()) return;
@@ -292,10 +419,14 @@ export default function App() {
   }, [hudPopover]);
 
   const handleStartPause = useCallback(() => {
+    if (recovery || !recoveryChecked) return;
+    // Finished intervals must be saved and resolved before the timer can restart.
+    if (activePlan && state.status === "finished") return;
     if (state.status !== "running" && !activePlan) {
       const preference = loadFocusAudioPreference();
       const audio = preference.track ? { track: preference.track, volume: preference.volume, pauseWithTimer: true } : null;
       const quickSession: SessionPlan = {
+        workSessionId: crypto.randomUUID(),
         kind: state.mode === "stopwatch" ? "stopwatch" : "deep-work",
         workMinutes: state.mode === "countdown" ? Math.round(state.targetMs / 60_000) : 0,
         breakMinutes: settings.pomodoroBreakMinutes,
@@ -312,25 +443,56 @@ export default function App() {
       setFocusAudioMuted(false);
       setFocusAudioError("");
     }
+    if (state.status === "running") {
+      showStatus(activePlan?.phase === "break" ? "Break paused" : "Timer paused");
+    } else if (!activePlan) {
+      showStatus("Focus session started");
+    } else {
+      showStatus(activePlan?.phase === "break" ? "Break resumed" : "Timer resumed");
+    }
     setState((previous) => {
       const pausing = previous.status === "running";
       if (pausing) {
         pauseStartedRef.current = performance.now();
-        notify("Timer paused", "Your focus session is waiting for you.", settings.notifications);
       } else {
         if (previous.status === "paused" && pauseStartedRef.current && settings.trackPausedTime) pausedMsRef.current += performance.now() - pauseStartedRef.current;
         pauseStartedRef.current = null;
-        notify("Timer resumed", "Back to focused work.", settings.notifications);
       }
       return { ...previous, elapsedMs: previous.status === "finished" ? 0 : previous.elapsedMs, status: pausing ? "paused" : "running" };
     });
-  }, [activePlan, sessionName, settings.notifications, settings.pomodoroBreakMinutes, settings.trackPausedTime, state.mode, state.status, state.targetMs]);
+  }, [recovery, recoveryChecked, activePlan, sessionName, showStatus, settings.pomodoroBreakMinutes, settings.trackPausedTime, state.mode, state.status, state.targetMs]);
+
+  const finishWorkSession = useCallback(async () => {
+    if (!activePlan?.workSessionId) return;
+    const records = (await getSessions()).filter((record) => record.workSessionId === activePlan.workSessionId);
+    const last = records.sort((a, b) => Date.parse(b.endedAt) - Date.parse(a.endedAt))[0];
+    if (last) {
+      await updateSession({ ...last, workSessionEndedAt: new Date().toISOString() });
+      await refreshSessions();
+    }
+  }, [activePlan, refreshSessions]);
+
+  const closeCompletedSession = async () => {
+    try { await finishWorkSession(); }
+    catch (error) { setDatabaseError(String(error)); return; }
+    setActivePlan(null);
+    setCompletion(null);
+    setState(initialTimerState(settings.defaultMode, settings.defaultDuration));
+  };
 
   const cancelOrReset = useCallback(async () => {
-    if (activePlan?.phase === "work" && state.elapsedMs > 0) {
+    if (recovery || !recoveryChecked) return;
+    if (completion?.phase === "save-error") return;
+    let savedPartial = false;
+    // Completion saves asynchronously; don't record the same finished interval twice.
+    if (activePlan && state.status === "finished" && !completion) return;
+    if (activePlan?.phase === "work" && state.elapsedMs > 0 && state.status !== "finished") {
       const focusSeconds = Math.max(1, Math.round(state.elapsedMs / 1000));
       if (!window.confirm(`End this session and save ${focusSeconds < 60 ? `${focusSeconds} sec` : `${Math.round(focusSeconds / 60)} min`} of focused time to history?`)) return;
       const record: SessionRecord = {
+        workSessionId: activePlan.workSessionId,
+        cycleCompleted: false,
+        workSessionEndedAt: new Date().toISOString(),
         startedAt: activePlan.startedAt,
         endedAt: new Date().toISOString(),
         plannedMinutes: activePlan.workMinutes,
@@ -342,31 +504,36 @@ export default function App() {
       };
       try {
         await saveSession(record);
-        await refreshSessions();
+        savedPartial = true;
       } catch (error) {
         setDatabaseError(String(error));
         return;
       }
     } else if (activePlan && !window.confirm("End this session?")) return;
+    try { if (!savedPartial) await finishWorkSession(); }
+    catch (error) { setDatabaseError(String(error)); return; }
     setActivePlan(null);
     setCompletion(null);
     pausedMsRef.current = 0;
     pauseStartedRef.current = null;
     setState(initialTimerState(settings.defaultMode, settings.defaultDuration));
-  }, [activePlan, refreshSessions, state.elapsedMs, settings.defaultMode, settings.defaultDuration, settings.trackPausedTime]);
+    if (savedPartial) await refreshSessions().catch((error) => setDatabaseError(String(error)));
+  }, [recovery, recoveryChecked, activePlan, completion, finishWorkSession, refreshSessions, state.elapsedMs, state.status, settings.defaultMode, settings.defaultDuration, settings.trackPausedTime]);
 
   const toggleClickThrough = useCallback(() => setSettings((previous) => ({ ...previous, clickThrough: !previous.clickThrough })), []);
 
   const startPlan = useCallback((plan: SessionPlan) => {
+    if (recovery || !recoveryChecked) return;
     const preference = loadFocusAudioPreference();
     const selectedAudio = plan.focusAudio === undefined
       ? (preference.track ? { track: preference.track, volume: preference.volume, pauseWithTimer: true } : null)
       : plan.focusAudio;
     if (plan.focusAudio !== undefined) saveFocusAudioPreference(plan.focusAudio);
-    const startedPlan = { ...plan, focusAudio: selectedAudio, phase: "work" as const, startedAt: new Date().toISOString() };
+    const startedPlan = { ...plan, completedFocusCycles: 0, lastCompletedFocusStartedAt: undefined, longBreakAtCount: undefined, breakKind: undefined, activeBreakMinutes: undefined, longBreakMinutes: settings.longBreakMinutes, cyclesBeforeLongBreak: settings.cyclesBeforeLongBreak, workSessionId: crypto.randomUUID(), focusAudio: selectedAudio, phase: "work" as const, startedAt: new Date().toISOString() };
     setStandaloneFocusAudio(selectedAudio);
     setActivePlan(startedPlan);
     setSessionName(plan.task);
+    showStatus("Focus session started");
     setState({ mode: "countdown", status: "running", elapsedMs: 0, targetMs: plan.workMinutes * 60_000 });
     pausedMsRef.current = 0;
     pauseStartedRef.current = null;
@@ -377,7 +544,7 @@ export default function App() {
     setFocusAudioError("");
     ensureProjectTask(plan.project, plan.task).then(refreshSessions).catch((error) => setDatabaseError(String(error)));
     setView("hud");
-  }, [refreshSessions]);
+  }, [recovery, recoveryChecked, refreshSessions, showStatus, settings.longBreakMinutes, settings.cyclesBeforeLongBreak]);
 
   const startDefaultDeepWork = useCallback(() => startPlan({
     kind: "deep-work",
@@ -398,12 +565,15 @@ export default function App() {
     dashboard: () => setView("dashboard"),
   };
 
-  const startPhase = useCallback((phase: SessionPhase) => {
-    if (!activePlan) return;
-    const next = { ...activePlan, phase, startedAt: new Date().toISOString(), cycle: phase === "work" ? activePlan.cycle + 1 : activePlan.cycle };
+  const startPhase = useCallback((phase: SessionPhase, plan = activePlan) => {
+    if (!plan) return;
+    const next = transitionSessionPhase(plan, phase);
     setActivePlan(next);
-    setState({ mode: "countdown", status: "running", elapsedMs: 0, targetMs: (phase === "work" ? next.workMinutes : next.breakMinutes) * 60_000 });
+    setState({ mode: "countdown", status: "running", elapsedMs: 0, targetMs: (phase === "work" ? next.workMinutes : next.activeBreakMinutes ?? next.breakMinutes) * 60_000 });
     pausedMsRef.current = 0;
+    pauseStartedRef.current = null;
+    lastTickRef.current = 0;
+    savedCycleKeyRef.current = "";
     completionKeyRef.current = "";
     warningKeyRef.current = "";
     setCompletion(null);
@@ -414,10 +584,13 @@ export default function App() {
     const key = `${activePlan.startedAt}:${activePlan.phase}`;
     if (completionKeyRef.current === key) return;
     completionKeyRef.current = key;
+    const alreadySaved = savedCycleKeyRef.current === key;
     const complete = async () => {
-      if (settings.sound) void playChime(settings.volume, activePlan.phase === "work" ? "work" : "break");
+      if (!alreadySaved && settings.sound) void playChime(settings.volume, activePlan.phase === "work" ? "work" : "break");
       if (activePlan.phase === "work") {
         const record: SessionRecord = {
+          workSessionId: activePlan.workSessionId,
+          cycleCompleted: true,
           startedAt: activePlan.startedAt,
           endedAt: new Date().toISOString(),
           plannedMinutes: activePlan.workMinutes,
@@ -427,37 +600,58 @@ export default function App() {
           task: activePlan.task,
           sessionKind: activePlan.kind,
         };
+        let goalReached = false;
+        let todayMinutes = 0;
         try {
           const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
           const previousToday = sessions.filter((item) => new Date(item.startedAt) >= todayStart).reduce((sum, item) => sum + item.focusSeconds, 0);
-          await saveSession(record);
+          if (!alreadySaved) {
+            await saveSession(record);
+            savedCycleKeyRef.current = key;
+          }
           await refreshSessions();
-          if (previousToday < settings.dailyGoalMinutes * 60 && previousToday + record.focusSeconds >= settings.dailyGoalMinutes * 60) notify("🎯 Daily goal reached!", `${Math.round((previousToday + record.focusSeconds) / 60)} minutes focused today.`, settings.notifications);
-        } catch (error) { setDatabaseError(String(error)); }
-        const title = activePlan.kind === "pomodoro" ? "Focus session complete" : "Deep work session completed";
-        await notify(`🎉 ${title}`, `You focused for ${activePlan.workMinutes} minutes.`, settings.notifications);
+          goalReached = previousToday < settings.dailyGoalMinutes * 60 && previousToday + record.focusSeconds >= settings.dailyGoalMinutes * 60;
+          todayMinutes = Math.round((previousToday + record.focusSeconds) / 60);
+        } catch (error) {
+          setDatabaseError(String(error));
+          setCompletion({ phase: "save-error", title: "Session could not be saved", body: "Your focused time is still here. Retry saving before continuing." });
+          return;
+        }
+        const title = activePlan.kind === "pomodoro" ? "Focus cycle completed" : "Deep work session completed";
+        const notice = focusCompletionNotice(activePlan.kind, activePlan.workMinutes, goalReached, todayMinutes, settings.motivationalMessages);
+        if (!alreadySaved) void notify(notice.title, notice.body, settings.notifications, notice.motivation);
         if (activePlan.kind === "pomodoro") {
-          if (settings.autoStartBreak) startPhase("break");
-          else setCompletion({ phase: "work", title, body: `You focused for ${activePlan.workMinutes} minutes. Start a ${activePlan.breakMinutes}-minute break?` });
-        } else setCompletion({ phase: "deep", title, body: `${activePlan.workMinutes} minutes of focused work recorded.` });
+          const completedPlan = completeFocusCycle(activePlan);
+          const rest = nextBreak(completedPlan);
+          setActivePlan(completedPlan);
+          if (settings.autoStartBreak) startPhase("break", completedPlan);
+          else setCompletion({ phase: "work", title, body: `You focused for ${activePlan.workMinutes} minutes. Start a ${rest.minutes}-minute ${rest.kind === "long" ? "long " : ""}break?` });
+        } else {
+          // A completed standalone countdown needs no decision or blocking popup.
+          setActivePlan(null);
+          setCompletion(null);
+          pausedMsRef.current = 0;
+          pauseStartedRef.current = null;
+          setState(initialTimerState(settings.defaultMode, settings.defaultDuration));
+          showStatus(`${activePlan.workMinutes} minutes focused · Session complete`);
+        }
       } else {
-        await notify("Break finished", "Ready for another focus session?", settings.notifications);
+        void notify(activePlan.breakKind === "long" ? "Long break finished" : "Break finished", settings.autoStartWork ? "Your next focus cycle is starting." : "Ready for your next focus cycle? Start it when you’re ready.", settings.notifications);
         if (settings.autoStartWork) startPhase("work");
-        else setCompletion({ phase: "break", title: "Break finished", body: `Ready for focus cycle ${activePlan.cycle + 1}?` });
+        else setCompletion({ phase: "break", title: activePlan.breakKind === "long" ? "Long break finished" : "Break finished", body: `Ready for focus cycle ${activePlan.cycle + 1}?` });
       }
     };
     complete();
-  }, [activePlan, refreshSessions, sessions, settings, startPhase, state.status, state.targetMs]);
+  }, [activePlan, refreshSessions, sessions, settings, showStatus, startPhase, state.status, state.targetMs]);
 
   useEffect(() => {
-    if (!activePlan || activePlan.phase !== "work" || state.status !== "running" || !settings.fiveMinuteWarning) return;
-    const remaining = state.targetMs - state.elapsedMs;
+    if (!activePlan || !isFocusReminderDue(state, activePlan.phase, settings.fiveMinuteWarning)) return;
     const key = `${activePlan.startedAt}:warning`;
-    if (remaining <= 300_000 && remaining > 0 && warningKeyRef.current !== key) {
+    if (warningKeyRef.current !== key && settings.notifications && settings.reminderNotifications) {
       warningKeyRef.current = key;
-      notify("🔥 5 minutes remaining", "Stay focused. You're almost there.", settings.notifications);
+      void notify("5 minutes remaining", "Your focus interval is almost finished.", true);
     }
-  }, [activePlan, settings.fiveMinuteWarning, settings.notifications, state.elapsedMs, state.status, state.targetMs]);
+  }, [activePlan, settings.fiveMinuteWarning, settings.notifications, settings.reminderNotifications, state]);
 
   useEffect(() => {
     if (!isTauri() || !settings.autoPauseIdle) return;
@@ -500,13 +694,13 @@ export default function App() {
 
   useEffect(() => {
     if (!appWindow) return;
-    if (settings.clickThrough) {
+    if (settings.clickThrough && !recovery) {
       setClickThroughNotice(true);
       const timer = window.setTimeout(() => { appWindow.setIgnoreCursorEvents(true).catch(console.error); setClickThroughNotice(false); }, 900);
       return () => window.clearTimeout(timer);
     }
     appWindow.setIgnoreCursorEvents(false).catch(console.error);
-  }, [settings.clickThrough]);
+  }, [settings.clickThrough, recovery]);
 
   useEffect(() => {
     if (!appWindow) return;
@@ -514,7 +708,7 @@ export default function App() {
     const resize = async () => {
       const compact = settings.displayMode === "compact";
       const hudSize = completion && (compact || settings.size === "small") ? hudDimensions.medium : compact ? hudDimensions.small : hudDimensions[settings.size];
-      const desired = view === "hud"
+      const desired = recovery ? [420, 420] as const : view === "hud"
         ? hudSize
         : view === "launcher"
           ? [500, 650] as const
@@ -529,7 +723,7 @@ export default function App() {
     };
     resize().catch(console.error);
     return () => { cancelled = true; };
-  }, [completion, settings.displayMode, settings.size, settings.position, view]);
+  }, [recovery, completion, settings.displayMode, settings.size, settings.position, view]);
 
   useEffect(() => {
     if (view === "hud") return;
@@ -566,7 +760,7 @@ export default function App() {
       } catch (error) { setShortcutError(String(error)); }
     }, 450);
     return () => { window.clearTimeout(timer); unregisterAll().catch(console.error); };
-  }, [settings.shortcuts, shortcutRecording]);
+  }, [settings.shortcuts, shortcutRecording, shortcutRetry]);
 
   useEffect(() => {
     if (!isTauri()) return;
@@ -599,14 +793,14 @@ export default function App() {
       const targetMs = adjustedTarget(previous.targetMs, previous.elapsedMs, minutes);
       setActivePlan((plan) => plan ? {
         ...plan,
-        ...(plan.phase === "work" ? { workMinutes: Math.round(targetMs / 60_000) } : { breakMinutes: Math.round(targetMs / 60_000) }),
+        ...(plan.phase === "work" ? { workMinutes: Math.round(targetMs / 60_000) } : { activeBreakMinutes: Math.round(targetMs / 60_000) }),
       } : plan);
       return { ...previous, targetMs };
     });
   };
 
   const skipInterval = () => {
-    if (!activePlan || activePlan.kind !== "pomodoro") return;
+    if (!activePlan || activePlan.kind !== "pomodoro" || state.status === "finished") return;
     startPhase(activePlan.phase === "work" ? "break" : "work");
   };
 
@@ -751,11 +945,42 @@ export default function App() {
     ...(settings.accent === "custom" ? { "--accent": settings.customAccent, "--accent-rgb": customRgb } : {}),
   } as React.CSSProperties;
 
+  const autostartError = databaseError.startsWith("Autostart:");
+  const snapshotError = databaseError.startsWith("Session recovery unavailable:");
+  const errorNotices = <>
+    {databaseError && <ErrorNotice key={databaseError} title={autostartError ? "Start on login unavailable" : snapshotError ? "Session recovery unavailable" : "History storage needs attention"}
+      message={autostartError ? "In Settings → HUD, turn Start on system login off and on to try again."
+        : snapshotError ? "Your session recovery copy could not be stored. Check available disk space and app storage permissions, then return to the timer to retry the action."
+        : "Check available disk space and app data-folder permissions, then reload history. Reloading does not save an unfinished session; retry the action that failed. For a completed session, use Retry save on the timer."}
+      details={databaseError} onDismiss={() => { setDatabaseError(""); setHistoryReloadNotice(""); }} actionLabel={autostartError ? "Open settings" : snapshotError ? "Back to timer" : "Reload history"}
+      onAction={async () => {
+        if (autostartError) { setView("settings"); return; }
+        if (snapshotError) { setView("hud"); return; }
+        setHistoryReloadNotice("");
+        await initializeDatabase();
+        const [records, nextProjects] = await Promise.all([getSessions(), getProjects()]);
+        setSessions(records);
+        setProjects(nextProjects);
+        setHistoryReloadNotice("History reloaded. Retry any action that failed; no unfinished session was saved by reloading.");
+      }} />}
+    {historyReloadNotice && databaseError && <p className="history-reload-notice" role="status">{historyReloadNotice}</p>}
+    {shortcutError && <ErrorNotice key={shortcutError} title="Shortcuts unavailable"
+      message="In Settings → Keyboard shortcuts, change any combination used by another app or assigned twice. You can also free the shortcut in the other app and retry. Timer buttons still work."
+      details={shortcutError} onDismiss={() => setShortcutError("")} actionLabel={view === "settings" ? "Retry shortcuts" : "Open shortcut settings"}
+      onAction={() => {
+        if (view === "settings") setShortcutRetry((value) => value + 1);
+        else setView("settings");
+      }} />}
+  </>;
+
+  if (recovery) return <main className="app-shell size-large" style={shellStyle}><section className="hud"><SessionRecovery snapshot={recovery} busy={recoveryBusy || !recoveryChecked} error={recoveryError} onResume={recoverSession} onDiscard={discardRecovery} /></section></main>;
+
   if (view === "launcher") return <main className="app-shell app-shell--workspace" style={shellStyle}><SessionLauncher settings={settings} projects={projects} initialTask={sessionName} onStart={startPlan} onClose={() => setView("hud")} onDragStart={dragStart} /></main>;
   if (view === "dashboard") return <main className="app-shell app-shell--workspace" style={shellStyle}><Dashboard
+    notices={errorNotices}
     sessions={sessions}
     goalMinutes={settings.dailyGoalMinutes}
-    onDelete={async (id) => { await deleteSession(id); refreshSessions(); }}
+    onDelete={async (id) => { await deleteSession(id); await refreshSessions(); }}
     onUpdate={async (session) => { await updateSession(session); refreshSessions(); }}
     onExport={(format) => exportSessions(format, sessions)}
     onBackup={() => createBackup(settings, sessions)}
@@ -767,21 +992,16 @@ export default function App() {
       await refreshSessions();
     }}
     onResetDatabase={async () => {
-      const message = "Permanently delete all focus sessions and all saved project/task suggestions? Your settings and audio recordings will not be changed.";
-      const approved = isTauri()
-        ? await confirm(message, { title: "Reset DeepHUD database", kind: "warning" })
-        : window.confirm(message);
-      if (!approved) return;
       await resetDatabase();
       await refreshSessions();
     }}
     onClose={() => setView("hud")}
     onDragStart={dragStart}
   /></main>;
-  if (view === "settings") return <main className="app-shell app-shell--settings" style={shellStyle}><SettingsPanel settings={settings} onChange={changeSettings} onClose={() => setView("hud")} onDragStart={dragStart} onShortcutRecordingChange={setShortcutRecording} /></main>;
+  if (view === "settings") return <main className="app-shell app-shell--settings" style={shellStyle}><SettingsPanel settings={settings} onChange={changeSettings} onClose={() => setView("hud")} onDragStart={dragStart} onShortcutRecordingChange={setShortcutRecording} notices={errorNotices} /></main>;
 
   const displayName = activePlan?.task || sessionName;
-  const label = activePlan?.phase === "break" ? "RECOVERY BREAK" : activePlan ? "DEEP WORK" : state.mode === "stopwatch" ? "DEEP WORK" : "COUNTDOWN";
+  const label = activePlan?.phase === "break" ? (activePlan.breakKind === "long" ? "LONG BREAK" : "BREAK") : activePlan ? "DEEP WORK" : state.mode === "stopwatch" ? "DEEP WORK" : "COUNTDOWN";
   const statusLabel = activePlan?.phase === "break" && state.status === "running" ? "RECHARGING" : state.status === "running" ? "WORKING" : state.status === "paused" ? "PAUSED" : state.status === "finished" ? "COMPLETE" : "READY";
 
   const configuredSize = settings.displayMode === "compact" ? "small" : settings.size;
@@ -790,7 +1010,6 @@ export default function App() {
     <section className={`hud hud--${state.status} ${activePlan?.phase === "break" ? "hud--break" : ""}`}>
       <header className="hud__header" data-tauri-drag-region onMouseDown={dragStart}>
         <button className="brand" onClick={() => !activePlan && setState((previous) => initialTimerState(previous.mode === "stopwatch" ? "countdown" : "stopwatch", settings.defaultDuration))} title={activePlan ? label : "Switch timer mode"}><span className="status-dot" /><span>{label}</span></button>
-        {activePlan?.kind === "pomodoro" && <span className="cycle-label">CYCLE {activePlan.cycle}</span>}
         <div className="hud__header-actions">
           <span className={`status-label status-label--${state.status}`}>{statusLabel}</span>
           <button
@@ -807,7 +1026,7 @@ export default function App() {
       </header>
       <div className="hud__body">
         {activePlan ? <div className="active-intent"><span>{activePlan.project || "FOCUS SESSION"}</span><b>{displayName || "Deep Work"}</b></div> : <label className="session-field"><span className="sr-only">Session name</span><input value={sessionName} onChange={(event) => setSessionName(event.target.value)} maxLength={80} placeholder="What are you focusing on?" /></label>}
-        <Timer state={state} sessionName={displayName} />
+        <Timer state={state} sessionName={displayName} sessionSummary={sessionProgress(activePlan, state, progressRecords)} endingSoon={isFocusReminderDue(state, activePlan?.phase, settings.fiveMinuteWarning)} />
         {!activePlan && <div className="presets" aria-label="Quick start presets">{[25, 50, 90, 120].map((minutes) => <button key={minutes} onClick={() => startPlan({ kind: "deep-work", workMinutes: minutes, breakMinutes: settings.pomodoroBreakMinutes, phase: "work", project: "", task: sessionName, startedAt: new Date().toISOString(), cycle: 1 })}>{minutes === 120 ? "2 hr" : `${minutes} min`}</button>)}<button onClick={() => setCustomPresetOpen((open) => !open)}>Custom</button></div>}
         {customPresetOpen && !activePlan && <form className="custom-preset" onSubmit={(event) => { event.preventDefault(); startPlan({ kind: "deep-work", workMinutes: Math.max(1, customMinutes), breakMinutes: settings.pomodoroBreakMinutes, phase: "work", project: "", task: sessionName, startedAt: new Date().toISOString(), cycle: 1 }); setCustomPresetOpen(false); }}><input aria-label="Custom duration in minutes" type="number" min="1" max="1440" value={customMinutes} onChange={(event) => setCustomMinutes(Number(event.target.value))} autoFocus /><span>min</span><button type="submit">Start</button></form>}
         {hudPopover === "audio" && <div className="hud-popover hud-popover--audio" role="dialog" aria-label="Focus audio controls">
@@ -843,9 +1062,10 @@ export default function App() {
         </div>}
         <Controls status={state.status} activeSession={Boolean(activePlan)} onStartPause={handleStartPause} onReset={cancelOrReset} onNewSession={() => setView("launcher")} onDashboard={() => setView("dashboard")} onOpenSettings={() => setView("settings")} onExpand={expandHud} audioPlaying={focusAudioIsPlaying} openPopover={hudPopover} onAudio={toggleAudioPopover} onMore={() => setHudPopover((openPopover) => openPopover === "more" ? null : "more")} />
       </div>
-      {completion && <div className="completion-backdrop"><div className="completion-card"><span>{completion.phase === "break" ? "☕" : "✓"}</span><h2>{completion.title}</h2><p>{completion.body}</p><div>{completion.phase === "work" && <button className="primary-action" onClick={() => startPhase("break")}>Start break</button>}{completion.phase === "break" && <button className="primary-action" onClick={() => startPhase("work")}>Start focus</button>}{completion.phase === "deep" && <button className="primary-action" onClick={() => { setActivePlan(null); setCompletion(null); setState(initialTimerState(settings.defaultMode, settings.defaultDuration)); }}>Done</button>}{completion.phase !== "deep" && <button onClick={() => { setActivePlan(null); setCompletion(null); setState(initialTimerState(settings.defaultMode, settings.defaultDuration)); }}>Not now</button>}</div></div></div>}
+      {completion && <div className="completion-backdrop"><div className="completion-card"><span>{completion.phase === "save-error" ? "!" : completion.phase === "break" ? "☕" : "✓"}</span><h2>{completion.title}</h2><p>{completion.body}</p><div>{completion.phase === "work" && <button className="primary-action" onClick={() => startPhase("break")}>Start {activePlan && nextBreak(activePlan).kind === "long" ? "long " : ""}break</button>}{completion.phase === "break" && <button className="primary-action" onClick={() => startPhase("work")}>Start focus</button>}{completion.phase === "save-error" && <button className="primary-action" onClick={() => { completionKeyRef.current = ""; setCompletion(null); setActivePlan((plan) => plan ? { ...plan } : null); }}>Retry save</button>}{(completion.phase === "work" || completion.phase === "break") && <button onClick={closeCompletedSession}>End session</button>}</div></div></div>}
+      {statusNotice && <StatusToast key={statusNotice.id} text={statusNotice.text} onDismiss={dismissStatus} />}
       {clickThroughNotice && <div className="notice">Click-through on · Ctrl + Alt + C to disable</div>}
-      {(shortcutError || databaseError) && <button className="error-notice" onClick={() => { setShortcutError(""); setDatabaseError(""); }} title={shortcutError || databaseError}>{databaseError ? "History storage unavailable" : "Shortcuts unavailable"}</button>}
+      {(shortcutError || databaseError) && <button className="error-notice" onClick={() => setView(databaseError && !autostartError ? "dashboard" : "settings")} title="View error details and recovery actions">{databaseError ? autostartError ? "Start on login unavailable" : snapshotError ? "Session recovery unavailable" : "History storage unavailable" : "Shortcuts unavailable"} · Review</button>}
     </section>
   </main>;
 }

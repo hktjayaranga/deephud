@@ -8,6 +8,7 @@ interface SettingsPanelProps {
   onClose: () => void;
   onDragStart: () => void;
   onShortcutRecordingChange: (recording: boolean) => void;
+  notices?: React.ReactNode;
 }
 
 const positions: { value: HudPosition; label: string }[] = [
@@ -28,7 +29,7 @@ const shortcutLabels: Record<ShortcutAction, string> = {
   startDeepWork: "Start Deep Work",
 };
 
-export default function SettingsPanel({ settings, onChange, onClose, onDragStart, onShortcutRecordingChange }: SettingsPanelProps) {
+export default function SettingsPanel({ settings, onChange, onClose, onDragStart, onShortcutRecordingChange, notices }: SettingsPanelProps) {
   const [recordingShortcut, setRecordingShortcut] = useState<ShortcutAction | null>(null);
   const [shortcutMessage, setShortcutMessage] = useState<{ action: ShortcutAction; text: string } | null>(null);
 
@@ -74,6 +75,7 @@ export default function SettingsPanel({ settings, onChange, onClose, onDragStart
       </header>
 
       <div className="settings__content">
+        {notices}
         <SettingsGroup title="Appearance">
           <SettingRow label="Theme">
             <Segmented values={["dark", "light", "system"] as Theme[]} value={settings.theme} onChange={(theme) => onChange({ theme })} />
@@ -123,16 +125,18 @@ export default function SettingsPanel({ settings, onChange, onClose, onDragStart
         </SettingsGroup>
 
         <SettingsGroup title="Focus intervals">
-          <SettingRow label="Work / break" value="minutes">
-            <div className="paired-inputs"><input className="number-input" type="number" min="1" max="240" value={settings.pomodoroWorkMinutes} onChange={(event) => onChange({ pomodoroWorkMinutes: Math.max(1, Number(event.target.value)) })} /><span>/</span><input className="number-input" type="number" min="1" max="120" value={settings.pomodoroBreakMinutes} onChange={(event) => onChange({ pomodoroBreakMinutes: Math.max(1, Number(event.target.value)) })} /></div>
-          </SettingRow>
+          <SettingRow label="Long break" value="minutes"><input aria-label="Long-break duration" className="number-input" type="number" min="1" max="240" value={settings.longBreakMinutes} onChange={(event) => onChange({ longBreakMinutes: Math.max(1, Math.min(240, Math.round(Number(event.target.value)))) })} /></SettingRow>
+          <SettingRow label="Cycles before a long break" value="completed cycles"><input aria-label="Cycles before a long break" className="number-input" type="number" min="1" max="12" value={settings.cyclesBeforeLongBreak} onChange={(event) => onChange({ cyclesBeforeLongBreak: Math.max(1, Math.min(12, Math.round(Number(event.target.value)))) })} /></SettingRow>
+          <p className="long-break-hint">Applies to new sessions. Skipped cycles do not count. Long breaks are always at least one minute longer than the short break.</p>
           <Toggle label="Auto-start breaks" checked={settings.autoStartBreak} onChange={(autoStartBreak) => onChange({ autoStartBreak })} />
           <Toggle label="Auto-start focus" checked={settings.autoStartWork} onChange={(autoStartWork) => onChange({ autoStartWork })} />
         </SettingsGroup>
 
         <SettingsGroup title="Alerts">
-          <Toggle label="Desktop notifications" hint="Completion, five-minute, and pause alerts" checked={settings.notifications} onChange={(notifications) => onChange({ notifications })} />
-          <Toggle label="Five-minute warning" checked={settings.fiveMinuteWarning} onChange={(fiveMinuteWarning) => onChange({ fiveMinuteWarning })} />
+          <Toggle label="Desktop notifications" hint="Focus completion, break finished, and daily goals" checked={settings.notifications} onChange={(notifications) => onChange({ notifications })} />
+          <Toggle label="Motivational messages" hint="Short encouragement in completion and goal notifications" checked={settings.motivationalMessages} onChange={(motivationalMessages) => onChange({ motivationalMessages })} />
+          <Toggle label="Reminder notifications" hint="Also send the five-minute warning to your desktop; requires desktop notifications and the warning below" checked={settings.reminderNotifications} onChange={(reminderNotifications) => onChange({ reminderNotifications })} />
+          <Toggle label="Five-minute warning" hint="Subtle indication on the focus timer" checked={settings.fiveMinuteWarning} onChange={(fiveMinuteWarning) => onChange({ fiveMinuteWarning })} />
           <Toggle label="Completion sound" checked={settings.sound} onChange={(sound) => onChange({ sound })} />
           <SettingRow label="Volume" value={`${settings.volume}%`} stacked>
             <input className="range" type="range" min="0" max="100" value={settings.volume} disabled={!settings.sound} onChange={(event) => onChange({ volume: Number(event.target.value) })} />
