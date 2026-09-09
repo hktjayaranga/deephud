@@ -43,9 +43,10 @@ function BreathingExercise({ state, startedMs, cycles }: Pick<Props, "state" | "
       <path ref={path} className="breathing-exercise__track" d="M78 45 H242 Q250 45 250 53 V217 Q250 225 242 225 H78 Q70 225 70 217 V53 Q70 45 78 45 Z" />
       {breathingStages.map((label, index) => <text key={index} x={[160, 285, 160, 35][index]} y={[24, 140, 257, 140][index]} className={`breathing-exercise__label${phase.stage === index ? " is-active" : ""}`}>{label}</text>)}
       <text x="160" y="160" className="breathing-exercise__count">{phase.count}</text>
+      {state.status === "paused" && <text x="160" y="185" className="breathing-exercise__label">Paused</text>}
       <circle ref={dot} className="breathing-exercise__dot" cx="78" cy="45" r="8" />
     </svg>
-    <p role="status">{state.status === "paused" ? "Paused" : `${phase.label}${phase.stage === 1 ? " after inhale" : phase.stage === 3 ? " after exhale" : ""}`}</p>
+    <span className="sr-only" role="status">{state.status === "paused" ? "Paused" : `${phase.label}${phase.stage === 1 ? " after inhale" : phase.stage === 3 ? " after exhale" : ""}`}</span>
   </div>;
 }
 
@@ -75,7 +76,7 @@ export default function BreakActivities({ state, selectedActivity, startedMs, cy
   const run = selectedActivity === "breathing" && cycles !== undefined ? breathingRunProgress(breathingElapsed(state, startedMs), cycles) : null;
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => { heading.current?.focus({ preventScroll: true }); }, [selectedActivity, cycles]);
-  return <section className="break-activities" aria-label="Break activities">
+  return <section key={run ? "exercise" : "selection"} className={`break-activities${run ? " break-activities--running" : ""}`} aria-label="Break activities">
     <div className="break-activities__remaining">{formatMs(displayMs(state))} remaining in your break</div>
     <h2 ref={heading} tabIndex={-1}>{selectedActivity ? "Breathing exercise" : "Choose a break activity"}</h2>
     {selectedActivity === "breathing" ? <>
