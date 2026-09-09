@@ -86,8 +86,19 @@ button:focus-visible, input:focus-visible, select:focus-visible, .accent:focus-w
 .session-field input:focus { color: var(--text); }
 .session-field input::placeholder { color: var(--muted); opacity: .65; }
 .active-intent { flex: 0 0 auto; width: 100%; min-height: 26px; display: flex; flex-direction: column; align-items: center; overflow: hidden; text-align: center; }
-.active-intent span { color: var(--accent); font-size: 8px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; }
-.active-intent b { max-width: 100%; overflow: hidden; color: var(--muted); font-size: 11px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.active-intent__project { color: var(--accent); font-size: 8px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; }
+.active-intent__task { color: var(--muted); font-size: 11px; font-weight: 500; }
+.scrolling-name { width: 100%; min-width: 0; overflow: hidden; white-space: nowrap; }
+.scrolling-name__track { display: inline-flex; width: max-content; vertical-align: top; }
+.scrolling-name__text, .scrolling-name__copy { flex: 0 0 auto; }
+.scrolling-name__copy { margin-left: 32px; }
+.scrolling-name--overflow { text-align: left; }
+.scrolling-name--overflow .scrolling-name__track { animation: name-scroll var(--name-duration) linear infinite; }
+@keyframes name-scroll { to { transform: translateX(var(--name-distance)); } }
+@media (prefers-reduced-motion: reduce) {
+  .scrolling-name--overflow .scrolling-name__track { display: block; width: auto; overflow: hidden; text-overflow: ellipsis; animation: none; }
+  .scrolling-name__copy { display: none; }
+}
 
 .timer { flex: 0 0 auto; width: 100%; display: flex; flex-direction: column; align-items: center; }
 .timer__session { display: none; }

@@ -8,6 +8,7 @@ import { confirm, open } from "@tauri-apps/plugin-dialog";
 import { register, unregisterAll } from "@tauri-apps/plugin-global-shortcut";
 import { currentHudMonitor } from "./services/monitor";
 import Timer from "./components/Timer";
+import ScrollingName from "./components/ScrollingName";
 import BreakActivities from "./components/BreakActivities";
 import { BreakActivityChoice, breakActivityState } from "./services/breakActivities";
 import Controls from "./components/Controls";
@@ -1044,7 +1045,7 @@ export default function App() {
             setHudPopover(null);
           }}
         /> : <>
-        {activePlan ? <div className="active-intent"><span>{activePlan.project || "FOCUS SESSION"}</span><b>{displayName || "Deep Work"}</b></div> : <label className="session-field"><span className="sr-only">Session name</span><input value={sessionName} onChange={(event) => setSessionName(event.target.value)} maxLength={80} placeholder="What are you focusing on?" /></label>}
+        {activePlan ? <div className="active-intent"><ScrollingName className="active-intent__project" text={activePlan.project || "FOCUS SESSION"} /><ScrollingName className="active-intent__task" text={displayName || "Deep Work"} /></div> : <label className="session-field"><span className="sr-only">Session name</span><input value={sessionName} onChange={(event) => setSessionName(event.target.value)} maxLength={80} placeholder="What are you focusing on?" /></label>}
         <Timer state={state} sessionName={displayName} sessionSummary={sessionProgress(activePlan, state, progressRecords)} endingSoon={isFocusReminderDue(state, activePlan?.phase, settings.fiveMinuteWarning)} />
         {!activePlan && <div className="presets" aria-label="Quick start presets">{[25, 50, 90, 120].map((minutes) => <button key={minutes} onClick={() => startPlan({ kind: "deep-work", workMinutes: minutes, breakMinutes: settings.pomodoroBreakMinutes, phase: "work", project: "", task: sessionName, startedAt: new Date().toISOString(), cycle: 1 })}>{minutes === 120 ? "2 hr" : `${minutes} min`}</button>)}<button onClick={() => setCustomPresetOpen((open) => !open)}>Custom</button></div>}
         {customPresetOpen && !activePlan && <form className="custom-preset" onSubmit={(event) => { event.preventDefault(); startPlan({ kind: "deep-work", workMinutes: Math.max(1, customMinutes), breakMinutes: settings.pomodoroBreakMinutes, phase: "work", project: "", task: sessionName, startedAt: new Date().toISOString(), cycle: 1 }); setCustomPresetOpen(false); }}><input aria-label="Custom duration in minutes" type="number" min="1" max="1440" value={customMinutes} onChange={(event) => setCustomMinutes(Number(event.target.value))} autoFocus /><span>min</span><button type="submit">Start</button></form>}
