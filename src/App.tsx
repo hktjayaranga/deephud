@@ -2,11 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { LogicalPosition, LogicalSize, PhysicalPosition } from "@tauri-apps/api/dpi";
-import { currentMonitor, getCurrentWindow } from "@tauri-apps/api/window";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { disable as disableAutostart, enable as enableAutostart, isEnabled as isAutostartEnabled } from "@tauri-apps/plugin-autostart";
 import { confirm, open } from "@tauri-apps/plugin-dialog";
 import { register, unregisterAll } from "@tauri-apps/plugin-global-shortcut";
+import { currentHudMonitor } from "./services/monitor";
 import Timer from "./components/Timer";
+import BreakActivities from "./components/BreakActivities";
+import { BreakActivityChoice, breakActivityState } from "./services/breakActivities";
 import Controls from "./components/Controls";
 import Dashboard from "./components/Dashboard";
 import SessionLauncher from "./components/SessionLauncher";
@@ -69,6 +72,10 @@ export default function App() {
   const [projects, setProjects] = useState<ProjectRecord[]>([]);
   const [view, setView] = useState<View>("hud");
   const [completion, setCompletion] = useState<Completion | null>(null);
+  const [breakChoice, setBreakChoice] = useState<BreakActivityChoice | null>(null);
+  const breakActivity = breakActivityState(activePlan, state, breakChoice);
+  const showBreakActivities = breakActivity.visible && !completion && !recovery;
+  const breakActivitiesOnScreen = showBreakActivities && view === "hud";
   const [customPresetOpen, setCustomPresetOpen] = useState(false);
   const [customMinutes, setCustomMinutes] = useState(settings.defaultDuration);
   const [shortcutError, setShortcutError] = useState("");
@@ -694,26 +701,27 @@ export default function App() {
 
   useEffect(() => {
     if (!appWindow) return;
-    if (settings.clickThrough && !recovery) {
+    if (settings.clickThrough && !recovery && !breakActivitiesOnScreen) {
       setClickThroughNotice(true);
       const timer = window.setTimeout(() => { appWindow.setIgnoreCursorEvents(true).catch(console.error); setClickThroughNotice(false); }, 900);
       return () => window.clearTimeout(timer);
     }
+    setClickThroughNotice(false);
     appWindow.setIgnoreCursorEvents(false).catch(console.error);
-  }, [settings.clickThrough, recovery]);
+  }, [settings.clickThrough, recovery, breakActivitiesOnScreen]);
 
   useEffect(() => {
     if (!appWindow) return;
     let cancelled = false;
     const resize = async () => {
       const compact = settings.displayMode === "compact";
-      const hudSize = completion && (compact || settings.size === "small") ? hudDimensions.medium : compact ? hudDimensions.small : hudDimensions[settings.size];
+      const hudSize = showBreakActivities ? [420, 500] as const : completion && (compact || settings.size === "small") ? hudDimensions.medium : compact ? hudDimensions.small : hudDimensions[settings.size];
       const desired = recovery ? [420, 420] as const : view === "hud"
         ? hudSize
         : view === "launcher"
           ? [500, 650] as const
           : [view === "dashboard" ? 580 : 500, 740] as const;
-      const monitor = await currentMonitor();
+      const monitor = await currentHudMonitor();
       const workArea = monitor?.workArea.size.toLogical(monitor.scaleFactor);
       const width = workArea ? Math.max(280, Math.min(desired[0], workArea.width - 16)) : desired[0];
       const height = workArea ? Math.max(42, Math.min(desired[1], workArea.height - 16)) : desired[1];
@@ -723,7 +731,7 @@ export default function App() {
     };
     resize().catch(console.error);
     return () => { cancelled = true; };
-  }, [recovery, completion, settings.displayMode, settings.size, settings.position, view]);
+  }, [recovery, completion, showBreakActivities, settings.displayMode, settings.size, settings.position, view]);
 
   useEffect(() => {
     if (view === "hud") return;
@@ -1005,8 +1013,8 @@ export default function App() {
   const statusLabel = activePlan?.phase === "break" && state.status === "running" ? "RECHARGING" : state.status === "running" ? "WORKING" : state.status === "paused" ? "PAUSED" : state.status === "finished" ? "COMPLETE" : "READY";
 
   const configuredSize = settings.displayMode === "compact" ? "small" : settings.size;
-  const effectiveSize = completion && configuredSize === "small" ? "medium" : configuredSize;
-  return <main className={`app-shell size-${effectiveSize} display-${settings.displayMode}`} style={shellStyle}>
+  const effectiveSize = showBreakActivities ? "large" : completion && configuredSize === "small" ? "medium" : configuredSize;
+  return <main className={`app-shell size-${effectiveSize} display-${settings.displayMode}${showBreakActivities ? " break-activity-shell" : ""}`} style={shellStyle}>
     <section className={`hud hud--${state.status} ${activePlan?.phase === "break" ? "hud--break" : ""}`}>
       <header className="hud__header" data-tauri-drag-region onMouseDown={dragStart}>
         <button className="brand" onClick={() => !activePlan && setState((previous) => initialTimerState(previous.mode === "stopwatch" ? "countdown" : "stopwatch", settings.defaultDuration))} title={activePlan ? label : "Switch timer mode"}><span className="status-dot" /><span>{label}</span></button>
@@ -1025,10 +1033,22 @@ export default function App() {
         </div>
       </header>
       <div className="hud__body">
+        {showBreakActivities && breakActivity.key ? <BreakActivities
+          key={breakActivity.key}
+          state={state}
+          selectedActivity={breakActivity.choice?.activity === "breathing" ? "breathing" : null}
+          startedMs={breakActivity.choice?.startedMs ?? state.elapsedMs}
+          cycles={breakActivity.choice?.cycles}
+          onSelect={(activity, cycles) => {
+            setBreakChoice({ breakKey: breakActivity.key!, activity, cycles, startedMs: state.elapsedMs });
+            setHudPopover(null);
+          }}
+        /> : <>
         {activePlan ? <div className="active-intent"><span>{activePlan.project || "FOCUS SESSION"}</span><b>{displayName || "Deep Work"}</b></div> : <label className="session-field"><span className="sr-only">Session name</span><input value={sessionName} onChange={(event) => setSessionName(event.target.value)} maxLength={80} placeholder="What are you focusing on?" /></label>}
         <Timer state={state} sessionName={displayName} sessionSummary={sessionProgress(activePlan, state, progressRecords)} endingSoon={isFocusReminderDue(state, activePlan?.phase, settings.fiveMinuteWarning)} />
         {!activePlan && <div className="presets" aria-label="Quick start presets">{[25, 50, 90, 120].map((minutes) => <button key={minutes} onClick={() => startPlan({ kind: "deep-work", workMinutes: minutes, breakMinutes: settings.pomodoroBreakMinutes, phase: "work", project: "", task: sessionName, startedAt: new Date().toISOString(), cycle: 1 })}>{minutes === 120 ? "2 hr" : `${minutes} min`}</button>)}<button onClick={() => setCustomPresetOpen((open) => !open)}>Custom</button></div>}
         {customPresetOpen && !activePlan && <form className="custom-preset" onSubmit={(event) => { event.preventDefault(); startPlan({ kind: "deep-work", workMinutes: Math.max(1, customMinutes), breakMinutes: settings.pomodoroBreakMinutes, phase: "work", project: "", task: sessionName, startedAt: new Date().toISOString(), cycle: 1 }); setCustomPresetOpen(false); }}><input aria-label="Custom duration in minutes" type="number" min="1" max="1440" value={customMinutes} onChange={(event) => setCustomMinutes(Number(event.target.value))} autoFocus /><span>min</span><button type="submit">Start</button></form>}
+        </>}
         {hudPopover === "audio" && <div className="hud-popover hud-popover--audio" role="dialog" aria-label="Focus audio controls">
           <div className="hud-popover__header"><span><i className={focusAudioIsPlaying ? "is-on" : ""} />Focus audio</span><button type="button" onClick={() => setHudPopover(null)} aria-label="Close audio controls">×</button></div>
           <strong className="hud-popover__track">{focusAudioError || effectiveFocusAudio?.track.name || "Silence"}</strong>
@@ -1072,7 +1092,7 @@ export default function App() {
 
 async function positionWindow(position: Exclude<HudPosition, "custom">) {
   if (!appWindow) return;
-  const monitor = await currentMonitor(); if (!monitor) return;
+  const monitor = await currentHudMonitor(); if (!monitor) return;
   const workPosition = monitor.workArea.position.toLogical(monitor.scaleFactor);
   const workSize = monitor.workArea.size.toLogical(monitor.scaleFactor);
   const windowSize = (await appWindow.outerSize()).toLogical(monitor.scaleFactor);
@@ -1084,7 +1104,7 @@ async function positionWindow(position: Exclude<HudPosition, "custom">) {
 
 async function snapToCorner(position: { x: number; y: number }): Promise<HudPosition | null> {
   if (!appWindow) return null;
-  const monitor = await currentMonitor();
+  const monitor = await currentHudMonitor();
   if (!monitor) return null;
   const work = monitor.workArea;
   const size = await appWindow.outerSize();

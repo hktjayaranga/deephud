@@ -58,6 +58,27 @@ fn monotonic_millis() -> Result<u64, String> {
     platform::monotonic_millis()
 }
 
+// Tauri 2.11's monitor conversion reads GTK's work area on the caller thread.
+// Its async window command can therefore touch GDK from a Tokio worker on
+// Linux. Keep the complete query/conversion on the UI thread.
+#[tauri::command]
+async fn hud_current_monitor(
+    window: tauri::WebviewWindow,
+) -> Result<Option<tauri::window::Monitor>, String> {
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    let target = window.clone();
+    window
+        .run_on_main_thread(move || {
+            let result = target.current_monitor().map_err(|error| error.to_string());
+            let _ = sender.send(result);
+        })
+        .map_err(|error| error.to_string())?;
+    tauri::async_runtime::spawn_blocking(move || receiver.recv())
+        .await
+        .map_err(|error| error.to_string())?
+        .map_err(|error| error.to_string())?
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let migrations = vec![
@@ -106,6 +127,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             system_idle_seconds,
             monotonic_millis,
+            hud_current_monitor,
             database::initialize_database,
             database::save_session,
             database::update_session,

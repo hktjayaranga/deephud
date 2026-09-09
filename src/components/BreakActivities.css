@@ -1,0 +1,34 @@
+.break-activity-shell.size-large .hud__body { padding: 12px 18px; gap: 10px; overflow-y: auto; }
+.break-activity-shell .hud__minimize { display: none; }
+.break-activities { width: 100%; flex: 1 0 auto; text-align: center; }
+.break-activities__remaining { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.break-activities h2 { margin: 12px 0 8px; font-size: 18px; line-height: 1.3; }
+.break-activities > p { color: var(--muted); font-size: 12px; line-height: 1.5; }
+.break-activities__choices { display: grid; gap: 10px; margin: 24px 0 16px; }
+.break-activities__choices button { display: flex; flex-direction: column; gap: 8px; padding: 20px; border: 1px solid rgba(var(--accent-rgb), .4); border-radius: 14px; background: var(--button); text-align: left; cursor: pointer; }
+.break-activities__choices button:hover { background: var(--button-hover); }
+.break-activities__choices strong { font-size: 15px; }
+.break-activities__choices span { color: var(--muted); font-size: 12px; }
+.break-activities__skip { padding: 9px 15px; border: 1px solid var(--line); border-radius: 9px; background: var(--button); font-size: 12px; cursor: pointer; }
+.break-activities__skip:hover { background: var(--button-hover); }
+.breathing-exercise { max-width: 300px; margin: 0 auto 8px; border-radius: 14px; background: #08090c; color: #fff; }
+.breathing-exercise svg { display: block; width: 100%; height: 235px; }
+.breathing-exercise__track { fill: none; stroke: #df007e; stroke-width: 5; }
+.breathing-exercise__label { fill: #fff; text-anchor: middle; font-size: 14px; font-weight: 650; }
+.breathing-exercise__label.is-active { fill: #ff24cd; }
+.breathing-exercise__count { fill: #fff; text-anchor: middle; font-size: 76px; font-weight: 750; font-variant-numeric: tabular-nums; }
+.breathing-exercise__dot { fill: #ff00cf; }
+.breathing-exercise p { margin: 0; padding: 0 0 8px; color: #fff; font-size: 12px; }
+@media (prefers-reduced-motion: reduce) { .breathing-exercise__dot { visibility: hidden; } }
+.breathing-setup { text-align: left; }
+.breathing-setup p { margin: 10px 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.breathing-setup fieldset { margin: 12px 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; }
+.breathing-setup legend { padding: 0 5px; font-size: 12px; font-weight: 650; }
+.breathing-setup fieldset label { display: flex; align-items: center; gap: 9px; padding: 7px 0; font-size: 12px; cursor: pointer; }
+.breathing-setup input { accent-color: var(--accent); }
+.breathing-setup__custom { display: grid; grid-template-columns: 1fr 80px; align-items: center; gap: 6px; font-size: 12px; }
+.breathing-setup__custom input { min-width: 0; padding: 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--button); color: var(--text); }
+.breathing-setup__custom span { grid-column: 1 / -1; color: var(--muted); font-size: 11px; }
+.breathing-setup__start { display: block; width: 100%; margin: 10px 0; }
+.breathing-setup__start:disabled { opacity: .5; cursor: not-allowed; }
+.break-activities .breathing-cycle-progress { margin: 6px 0; font-size: 12px; font-variant-numeric: tabular-nums; }

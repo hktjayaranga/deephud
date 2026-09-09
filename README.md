@@ -15,6 +15,7 @@ Stay focused on deep work without accounts, cloud sync, telemetry, or tracking.
 - Floating transparent HUD with compact/full layouts and three sizes
 - Stopwatch, countdown, Deep Work, Pomodoro, and custom work/break intervals
 - Pause, resume, reset, skip, and ±5-minute adjustment
+- Optional break activities: choose guided square breathing or continue with a normal break
 - Themes, custom accent, opacity, always-on-top, snapping, and click-through
 - Projects, tasks, editable history, daily/weekly statistics, goals, and streaks
 - CSV/JSON export plus complete JSON backup and restore
