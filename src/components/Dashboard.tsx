@@ -1,6 +1,11 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { SessionRecord } from "../services/database";
 import { groupSessions, WorkSession } from "../services/sessionHistory";
+import { calculateMonthlyInsights, monthKey, shiftMonth } from "../services/insights";
+import MonthlySummary from "./insights/MonthlySummary";
+import FocusCalendar from "./insights/FocusCalendar";
+import ProjectComparison from "./insights/ProjectComparison";
+import HourlyFocusChart from "./insights/HourlyFocusChart";
 import HistoryConfirmation from "./HistoryConfirmation";
 
 interface Props {
@@ -25,6 +30,17 @@ interface Props {
 export type DashboardTab = "overview" | "history" | "projects" | "saved";
 
 export default function Dashboard({ tab, onTabChange, savedThoughts, pendingThoughtCount, sessions, goalMinutes, onDelete, onUpdate, onExport, onBackup, onRestore, onResetDatabase, onToday, onClose, onDragStart, notices }: Props) {
+  const [period, setPeriod] = useState<"week" | "month">("week");
+  const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const update = () => setNow(new Date());
+    const timer = window.setInterval(update, 60_000);
+    window.addEventListener("focus", update);
+    return () => { window.clearInterval(timer); window.removeEventListener("focus", update); };
+  }, []);
+  const month = selectedMonth ?? monthKey(now);
+  const insights = useMemo(() => calculateMonthlyInsights(sessions, month), [sessions, month, now]);
   const [search, setSearch] = useState("");
   const [projectFilter, setProjectFilter] = useState("");
   const [dateFilter, setDateFilter] = useState("");
@@ -34,14 +50,11 @@ export default function Dashboard({ tab, onTabChange, savedThoughts, pendingThou
   const requestDelete = (id: number) => setDeletion({ id });
   const hasFilters = Boolean(search.trim() || projectFilter || dateFilter);
   const clearFilters = () => { setSearch(""); setProjectFilter(""); setDateFilter(""); };
-  const stats = useMemo(() => calculateStats(sessions, goalMinutes), [sessions, goalMinutes]);
+  const stats = useMemo(() => calculateStats(sessions, goalMinutes, now), [sessions, goalMinutes, now]);
   const projectNames = useMemo(() => [...new Set(sessions.map((session) => session.project).filter(Boolean))].sort(), [sessions]);
   const workSessions = useMemo(() => groupSessions(sessions), [sessions]);
-  const filteredSessions = useMemo(() => workSessions.filter((group) => group.cycles.some((session) => {
-    const query = search.trim().toLocaleLowerCase();
-    const matchesSearch = !query || `${session.task} ${session.project} ${session.sessionKind}`.toLocaleLowerCase().includes(query);
-    return matchesSearch && (!projectFilter || session.project === projectFilter) && (!dateFilter || localDateKey(new Date(session.startedAt)) === dateFilter);
-  })), [dateFilter, projectFilter, search, workSessions]);
+  const filteredSessions = useMemo(() => groupSessions(filterHistoryRecords(sessions, search, projectFilter, dateFilter)), [dateFilter, projectFilter, search, sessions]);
+  const openDay = (date: string) => { setSearch(""); setProjectFilter(""); setDateFilter(date); onTabChange("history"); };
   const run = async (action: () => Promise<void>) => { try { setActionError(""); await action(); } catch (error) { setActionError(String(error)); } };
 
   return <section className="workspace dashboard">
@@ -68,12 +81,31 @@ export default function Dashboard({ tab, onTabChange, savedThoughts, pendingThou
           <Stat label="Longest" value={formatDuration(stats.longest)} />
           <Stat label="Average" value={formatDuration(stats.average)} />
         </section>
+        <div className="insights-period" role="group" aria-label="Statistics period">
+          <button type="button" aria-pressed={period === "week"} className={period === "week" ? "is-active" : ""} onClick={() => setPeriod("week")}>Week</button>
+          <button type="button" aria-pressed={period === "month"} className={period === "month" ? "is-active" : ""} onClick={() => setPeriod("month")}>Month</button>
+        </div>
+        {period === "week" ? <>
         <section className="dashboard-section"><div className="section-title"><h2>This week</h2><span>{formatDuration(stats.weekTotal)}</span></div><div className="week-chart">{stats.week.map((day) => <div className="week-row" key={day.label}><span>{day.label}</span><div><i style={{ width: `${day.percent}%` }} /></div><b>{formatDuration(day.seconds)}</b></div>)}</div></section>
+        </> : <>
+          <div className="insights-month-nav">
+            <button type="button" className="icon-button" aria-label="Previous month" title="Previous month" disabled={month <= "2000-01"} onClick={() => setSelectedMonth(shiftMonth(month, -1))}>←</button>
+            <strong aria-live="polite">{insights.label}</strong>
+            <button type="button" className="icon-button" aria-label="Next month" title="Next month" disabled={month >= monthKey(now)} onClick={() => setSelectedMonth(shiftMonth(month, 1))}>→</button>
+            <button type="button" className="workspace-nav-button" onClick={() => { setNow(new Date()); setSelectedMonth(null); }}>This month</button>
+          </div>
+          <MonthlySummary insights={insights} />
+          <FocusCalendar insights={insights} onSelectDay={openDay} />
+          <ProjectComparison insights={insights} />
+          <HourlyFocusChart insights={insights} />
+        </>}
+
         <section className="dashboard-section"><div className="section-title"><h2>Recent sessions</h2></div><HistoryList sessions={workSessions.slice(0, 4)} onDelete={requestDelete} /></section>
       </>}
       {tab === "history" && <section className="dashboard-section dashboard-section--flush">
         <div className="section-title"><h2>Session history</h2><span>{filteredSessions.length} shown</span></div>
         <div className="history-filters"><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search task or project" /><select value={projectFilter} onChange={(event) => setProjectFilter(event.target.value)}><option value="">All projects</option>{projectNames.map((project) => <option key={project}>{project}</option>)}</select><input type="date" value={dateFilter} onChange={(event) => setDateFilter(event.target.value)} /></div>
+        {dateFilter && <p className="insight-note">Showing intervals started on {dateFilter} (local time). <button type="button" className="workspace-nav-button" onClick={clearFilters}>Clear filters</button></p>}
         <div className="data-actions"><button onClick={() => run(() => onExport("csv"))}>Export CSV</button><button onClick={() => run(() => onExport("json"))}>Export JSON</button><button onClick={() => run(onBackup)}>Backup</button><button onClick={() => run(onRestore)}>Restore</button><button className="danger-action" onClick={() => setDeletion("all")}>Reset database</button></div>
         {actionError && <p className="inline-error">{actionError}</p>}
         <HistoryList sessions={filteredSessions} onDelete={requestDelete} onEdit={setEditing} onClearFilters={hasFilters ? clearFilters : undefined} />
@@ -129,8 +161,7 @@ function EditSession({ session, onCancel, onSave }: { session: SessionRecord; on
 
 function EmptyState() { return <div className="empty-state"><b>No focus sessions yet</b><span>Complete a session and it will appear here.</span></div>; }
 
-export function calculateStats(sessions: SessionRecord[], goalMinutes: number) {
-  const now = new Date();
+export function calculateStats(sessions: SessionRecord[], goalMinutes: number, now = new Date()) {
   const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const startWeek = new Date(startToday);
   const weekday = (startToday.getDay() + 6) % 7;
@@ -180,4 +211,12 @@ export function formatDuration(seconds: number) {
   const hours = Math.floor(minutes / 60);
   const rest = minutes % 60;
   return hours ? `${hours}h${rest ? ` ${rest}m` : ""}` : `${minutes}m`;
+}
+
+
+/** Filter intervals before grouping, so a day selection cannot include other days' cycles. */
+export function filterHistoryRecords(sessions: SessionRecord[], search = "", project = "", date = "") {
+  const query = search.trim().toLocaleLowerCase();
+  return sessions.filter((session) => (!query || `${session.task} ${session.project} ${session.sessionKind}`.toLocaleLowerCase().includes(query))
+    && (!project || session.project === project) && (!date || localDateKey(new Date(session.startedAt)) === date));
 }

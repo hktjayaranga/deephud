@@ -91,3 +91,25 @@ Before release, verify on each supported desktop platform:
 8. Back up and restore v3 captures and links. Test v1/v2 compatibility, failed
    restore rollback, and reset behavior. Check keyboard focus and long input/error
    text in both light and dark themes.
+
+
+## Monthly insights
+
+Automated coverage includes local month boundaries, leap years, DST transitions,
+calendar alignment, partial/legacy completion, shorter-month comparisons, zero
+baselines, hourly attribution, totals reconciliation, and filtered History groups.
+
+Before release, verify Dashboard → Overview:
+
+1. Switch Week / Month below the daily summary. Browse across year boundaries,
+   return to This month, and verify Next month is disabled on the current month.
+2. Compare a current month and a historical month; check the displayed reference
+   dates, completed-block explanation, and zero-baseline messaging.
+3. Hover/focus calendar days to read numeric totals. Select a day to open History;
+   clear the filter and return to Overview without losing the selected month.
+4. Check project bars, Unassigned work, all 24 start-hour values, and empty months.
+   Edit/delete a history interval and verify the insight totals update.
+5. Check light/dark themes, keyboard navigation, long project names, and narrow
+   dashboard layouts. Charts should scroll or wrap without resizing the HUD.
+6. Leave Overview open across local midnight/month rollover; This month should
+   follow the new month while a deliberately selected historical month stays fixed.

@@ -93,6 +93,29 @@ integration, alert, idle, goal, and shortcut settings.
 Completed work intervals are recorded; breaks do not inflate focus totals. The
 History page can search, filter, edit, delete, export, back up, and restore data.
 
+### Monthly insights
+
+In **Dashboard → Overview**, switch **Week / Month** below the daily summary.
+Month shows total focused time, completed focus blocks, active days, a daily
+calendar heatmap, project comparisons, and **Focus time by session start hour**.
+Use Previous month / Next month / This month to browse saved history.
+
+- Partial and untimed sessions contribute focused time, but do not count as
+  completed focus blocks. Older countdown records infer completion from their
+  planned duration when explicit completion metadata is unavailable.
+- Current-month comparisons use the same local day and time in the previous
+  month, capped at its end if shorter. Historical comparisons use full months.
+  A zero baseline shows a plain-language explanation rather than an infinite
+  percentage.
+- Calendar intensity is relative to that month's busiest day; each cell also
+  shows focused time. Select a day to open History filtered to intervals that
+  started on that local date. Empty days remain selectable; future days do not.
+- All focused time is assigned to each saved interval's local start date/hour.
+  This includes intervals spanning midnight or a month boundary. Hourly charts
+  do not estimate the timing of pauses or claim exact hourly activity.
+- Project totals include **Unassigned** work. Insights update from saved history
+  after edits/deletions/restores and stay inside the scrollable dashboard.
+
 ### Today’s task queue
 
 Open **Today’s task queue** from the full HUD, **Today** in the dashboard, or

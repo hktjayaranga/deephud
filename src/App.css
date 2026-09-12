@@ -533,3 +533,47 @@ kbd { min-width: 23px; padding: 4px 5px; border: 1px solid var(--line); border-b
 .dashboard-tabs button { white-space: nowrap; }
 .dashboard-tab-badge { display: inline-block; min-width: 16px; margin-left: 3px; padding: 1px 4px; border-radius: 99px; background: var(--button); color: var(--muted); font-size: 8px; }
 .dashboard-tabs .is-active .dashboard-tab-badge { background: rgba(var(--accent-rgb), .12); color: var(--accent); }
+
+/* Month insights stay inside the existing scrollable dashboard. */
+.insights-period { display: inline-flex; gap: 3px; margin-top: 18px; padding: 3px; border: 1px solid var(--line); border-radius: 10px; background: var(--button); }
+.insights-period button { padding: 7px 18px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); font-size: 10px; cursor: pointer; }
+.insights-period button.is-active { background: rgba(var(--accent-rgb), .14); color: var(--text); }
+.insights-month-nav { display: flex; align-items: center; gap: 8px; margin-top: 16px; }
+.insights-month-nav strong { flex: 1; min-width: 0; font-size: 13px; text-align: center; }
+.insights-month-nav button:disabled { opacity: .35; cursor: not-allowed; }
+.insight-card { padding: 13px; border: 1px solid var(--line); border-radius: 13px; background: var(--button); }
+.insight-note { margin: 9px 0 0; color: var(--muted); font-size: 10px; line-height: 1.6; }
+.insight-card > .insight-note:first-child { margin-top: 0; margin-bottom: 12px; }
+.stat .insight-change { font-size: 14px; overflow-wrap: anywhere; }
+.focus-calendar { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 5px; }
+.focus-calendar__weekday { padding-bottom: 5px; color: var(--muted); text-align: center; font-size: 9px; }
+.focus-calendar__day { min-width: 0; min-height: 49px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 5px 1px; border: 1px solid var(--line); border-radius: 8px; color: var(--text); cursor: pointer; }
+.focus-calendar__day b { font-size: 11px; }
+.focus-calendar__day small { font-size: 8px; white-space: nowrap; }
+.focus-calendar__day:hover:not(:disabled) { border-color: var(--accent); }
+.focus-calendar__day:disabled { opacity: .4; cursor: default; }
+.heat-0 { background: var(--button); }
+.heat-1 { background: rgba(var(--accent-rgb), .1); }
+.heat-2 { background: rgba(var(--accent-rgb), .22); }
+.heat-3 { background: rgba(var(--accent-rgb), .36); }
+.heat-4 { background: rgba(var(--accent-rgb), .5); }
+.heatmap-legend { display: flex; align-items: center; justify-content: flex-end; gap: 4px; margin-top: 12px; color: var(--muted); font-size: 8px; }
+.heatmap-legend i { width: 12px; height: 12px; border: 1px solid var(--line); border-radius: 3px; }
+.project-comparison { list-style: none; display: flex; flex-direction: column; gap: 14px; padding: 0; margin: 0; }
+.project-comparison li > div:first-child { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; font-size: 10px; }
+.project-comparison b { min-width: 0; overflow-wrap: anywhere; }
+.project-comparison span { flex-shrink: 0; color: var(--muted); font-size: 9px; }
+.insight-bar { height: 6px; margin-top: 7px; border-radius: 99px; background: var(--button); overflow: hidden; }
+.insight-bar i { display: block; height: 100%; border-radius: inherit; background: var(--accent); }
+.hourly-focus { display: grid; grid-template-columns: repeat(24, minmax(16px, 1fr)); gap: 3px; overflow-x: auto; padding: 4px 0 8px; scrollbar-width: thin; }
+.hourly-focus__column { display: flex; flex-direction: column; align-items: center; min-width: 0; gap: 6px; }
+.hourly-focus__value { height: 28px; overflow-wrap: anywhere; color: var(--muted); font-size: 8px; text-align: center; }
+.hourly-focus__track { display: flex; align-items: flex-end; height: 80px; width: 14px; border-radius: 4px; background: var(--button); overflow: hidden; }
+.hourly-focus__track i { width: 100%; border-radius: 4px; background: var(--accent); }
+.hourly-focus__label { color: var(--muted); font-size: 9px; }
+@media (max-width: 380px) {
+  .insights-month-nav { flex-wrap: wrap; }
+  .focus-calendar { gap: 3px; }
+  .focus-calendar__day { min-height: 45px; }
+  .focus-calendar__day small { font-size: 7px; }
+}
