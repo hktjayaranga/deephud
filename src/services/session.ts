@@ -23,6 +23,7 @@ export interface FocusAudioPlan {
 }
 
 export interface SessionPlan {
+  queueItemId?: string;
   workSessionId?: string;
   kind: SessionKind;
   workMinutes: number;
@@ -63,4 +64,9 @@ export function transitionSessionPhase(plan: SessionPlan, phase: SessionPhase, s
     activeBreakMinutes: phase === "break" ? rest.minutes : undefined,
     longBreakAtCount: phase === "break" && rest.kind === "long" ? plan.completedFocusCycles : plan.longBreakAtCount,
   };
+}
+
+/** Queued tasks always offer an explicit choice after a break. */
+export function shouldAutoStartWork(plan: SessionPlan, enabled: boolean) {
+  return enabled && !plan.queueItemId;
 }

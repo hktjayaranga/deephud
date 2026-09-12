@@ -79,9 +79,8 @@ async fn hud_current_monitor(
         .map_err(|error| error.to_string())?
 }
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run() {
-    let migrations = vec![
+fn database_migrations() -> Vec<Migration> {
+    vec![
         Migration {
             version: 1,
             description: "create_focus_sessions",
@@ -121,8 +120,31 @@ pub fn run() {
                   ALTER TABLE sessions ADD COLUMN cycle_completed INTEGER;",
             kind: MigrationKind::Up,
         },
-    ];
+        Migration {
+            version: 4,
+            description: "daily_task_queue",
+            sql: "CREATE TABLE daily_queue_items (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    scheduled_date TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    project TEXT NOT NULL,
+                    position INTEGER NOT NULL,
+                    estimated_sessions INTEGER NOT NULL,
+                    focus_minutes INTEGER NOT NULL,
+                    kind TEXT NOT NULL,
+                    completed_at TEXT
+                  );
+                  CREATE INDEX idx_queue_day ON daily_queue_items(scheduled_date, position);
+                  ALTER TABLE sessions ADD COLUMN queue_item_id TEXT;
+                  CREATE INDEX idx_sessions_queue ON sessions(queue_item_id);",
+            kind: MigrationKind::Up,
+        },
+    ]
+}
 
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    let migrations = database_migrations();
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             system_idle_seconds,
@@ -136,7 +158,9 @@ pub fn run() {
             database::reset_database,
             database::replace_sessions,
             database::ensure_project_task,
-            database::get_projects
+            database::get_projects,
+            database::get_task_queue,
+            database::replace_task_queue
         ])
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_notification::init())

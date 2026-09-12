@@ -3,6 +3,8 @@ import { readTextFile, stat, writeTextFile } from "@tauri-apps/plugin-fs";
 import { SessionRecord, validateSessionGrouping } from "./database";
 import { Settings, validateSettings } from "./settings";
 
+import { DailyQueueItem, validateQueue } from "./taskQueue";
+
 export const MAX_BACKUP_BYTES = 10 * 1024 * 1024;
 export const MAX_BACKUP_SESSIONS = 50_000;
 const MAX_SESSION_SECONDS = 365 * 24 * 60 * 60;
@@ -10,7 +12,8 @@ const EARLIEST_SESSION = Date.parse("2000-01-01T00:00:00.000Z");
 
 export interface DeepHUDBackup {
   application: "DeepHUD";
-  schemaVersion: 1;
+  schemaVersion: 1 | 2;
+  queueItems?: DailyQueueItem[];
   exportedAt: string;
   settings: Settings;
   sessions: SessionRecord[];
@@ -24,8 +27,8 @@ export async function exportSessions(format: "csv" | "json", sessions: SessionRe
   await saveContent(`deephud-sessions-${dateStamp()}.${format}`, format, content);
 }
 
-export async function createBackup(settings: Settings, sessions: SessionRecord[]) {
-  const backup: DeepHUDBackup = { application: "DeepHUD", schemaVersion: 1, exportedAt: new Date().toISOString(), settings, sessions };
+export async function createBackup(settings: Settings, sessions: SessionRecord[], queueItems: DailyQueueItem[] = []) {
+  const backup: DeepHUDBackup = { application: "DeepHUD", schemaVersion: 2, queueItems: validateQueue(queueItems), exportedAt: new Date().toISOString(), settings, sessions };
   await saveContent(`deephud-backup-${dateStamp()}.json`, "json", JSON.stringify(backup, null, 2));
 }
 
@@ -39,12 +42,13 @@ export async function selectBackup(): Promise<DeepHUDBackup | null> {
 }
 
 export function validateBackup(value: unknown, now = Date.now()): DeepHUDBackup {
-  if (!isRecord(value) || (value.application !== "DeepHUD" && value.application !== "DeepWork HUD") || value.schemaVersion !== 1 || !Array.isArray(value.sessions)) throw new Error("This is not a valid DeepHUD v1 backup");
+  if (!isRecord(value) || (value.application !== "DeepHUD" && value.application !== "DeepWork HUD") || (value.schemaVersion !== 1 && value.schemaVersion !== 2) || !Array.isArray(value.sessions)) throw new Error("This is not a valid DeepHUD backup");
   if (value.sessions.length > MAX_BACKUP_SESSIONS) throw new Error(`Backup exceeds the ${MAX_BACKUP_SESSIONS.toLocaleString()} session limit`);
   const exportedAt = validDate(value.exportedAt, "export date", now);
   return {
     application: "DeepHUD",
-    schemaVersion: 1,
+    schemaVersion: value.schemaVersion as 1 | 2,
+    queueItems: value.schemaVersion === 2 ? validateQueue(value.queueItems) : [],
     exportedAt,
     settings: validateSettings(value.settings),
     sessions: value.sessions.map((session, index) => validateBackupSession(session, index, now)),

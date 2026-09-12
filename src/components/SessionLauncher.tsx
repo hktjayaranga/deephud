@@ -8,6 +8,7 @@ interface Props {
   projects: ProjectRecord[];
   initialTask: string;
   onStart: (plan: SessionPlan) => void;
+  onToday: () => void;
   onClose: () => void;
   onDragStart: () => void;
 }
@@ -18,7 +19,7 @@ const intervalPresets = [
   { name: "Long Focus", work: 90, rest: 20 },
 ];
 
-export default function SessionLauncher({ settings, projects, initialTask, onStart, onClose, onDragStart }: Props) {
+export default function SessionLauncher({ settings, projects, initialTask, onStart, onToday, onClose, onDragStart }: Props) {
   const [kind, setKind] = useState<SessionPlan["kind"]>("deep-work");
   const [workMinutes, setWorkMinutes] = useState(90);
   const [breakMinutes, setBreakMinutes] = useState(settings.pomodoroBreakMinutes);
@@ -42,6 +43,7 @@ export default function SessionLauncher({ settings, projects, initialTask, onSta
   return <section className="workspace launcher">
     <header className="workspace__header" data-tauri-drag-region onMouseDown={onDragStart}>
       <div><span className="eyebrow">START FOCUSING</span><h1>New session</h1></div>
+      <button type="button" className="workspace-nav-button" onClick={onToday}>Today’s queue</button>
       <button className="icon-button" onClick={onClose} title="Back to timer" aria-label="Back to timer">←</button>
     </header>
     <div className="workspace__content">

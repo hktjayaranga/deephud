@@ -11,7 +11,10 @@ import Timer from "./components/Timer";
 import ScrollingName from "./components/ScrollingName";
 import BreakActivities from "./components/BreakActivities";
 import { BreakActivityChoice, breakActivityState } from "./services/breakActivities";
-import Controls from "./components/Controls";
+import Controls, { Icon } from "./components/Controls";
+import TodayQueue from "./components/TodayQueue";
+import QueueCompletion from "./components/QueueCompletion";
+import { DailyQueueItem, getQueue, localDay, nextQueueItem, normalizeQueue, queuePlan, saveQueue } from "./services/taskQueue";
 import Dashboard from "./components/Dashboard";
 import SessionLauncher from "./components/SessionLauncher";
 import SettingsPanel from "./components/SettingsPanel";
@@ -20,7 +23,7 @@ import { createBackup, exportSessions, selectBackup } from "./services/dataTrans
 import { FOCUS_AUDIO_EXTENSIONS, RECORDED_FOCUS_PRESETS, UserAudioRecording, importUserAudioRecording, isSupportedRecording, loadFocusAudioPreference, loadUserAudioLibrary, removeUserAudioRecording, renameUserAudioRecording, resolveFocusAudio, saveFocusAudioPreference, saveFocusAudioVolume, toFocusAudioTrack } from "./services/focusAudio";
 import { notify } from "./services/notifications";
 import { playChime, scheduleCountdown, stopTimerSounds, unlockAudio } from "./services/timerSounds";
-import { FocusAudioPlan, FocusAudioTrack, SessionPhase, SessionPlan, completeFocusCycle, nextBreak, transitionSessionPhase } from "./services/session";
+import { FocusAudioPlan, FocusAudioTrack, SessionPhase, SessionPlan, completeFocusCycle, nextBreak, shouldAutoStartWork, transitionSessionPhase } from "./services/session";
 import { TimerState, initialTimerState } from "./services/timer";
 import { adjustedTarget, advanceElapsed, hasFinished } from "./services/timerMath";
 import { HudPosition, Settings, loadSettings, saveSettings } from "./services/settings";
@@ -34,7 +37,7 @@ import SessionRecovery from "./components/SessionRecovery";
 import ErrorNotice from "./components/ErrorNotice";
 import { SessionSnapshot, clearSessionSnapshot, loadSessionSnapshot, reconcileSessionSnapshot, resumeSessionSnapshot, saveSessionSnapshot, savedRecoveryCycle } from "./services/sessionRecovery";
 
-type View = "hud" | "launcher" | "dashboard" | "settings";
+type View = "today" | "hud" | "launcher" | "dashboard" | "settings";
 type Completion = { phase: "save-error" | SessionPhase; title: string; body: string };
 
 const isTauri = () => "__TAURI_INTERNALS__" in window;
@@ -71,6 +74,24 @@ export default function App() {
   const [activePlan, setActivePlan] = useState<SessionPlan | null>(null);
   const [sessions, setSessions] = useState<SessionRecord[]>([]);
   const progressRecords = useMemo(() => activePlan?.workSessionId ? sessions.filter((record) => record.workSessionId === activePlan.workSessionId) : [], [sessions, activePlan?.workSessionId]);
+  const [queueItems, setQueueItems] = useState<DailyQueueItem[]>([]);
+  const [queueReady, setQueueReady] = useState(false);
+  const queueWriteRef = useRef(false);
+  const queueTransitionRef = useRef(false);
+  const [today, setToday] = useState(localDay);
+  useEffect(() => {
+    const update = () => setToday(localDay());
+    const timer = window.setInterval(update, 1000);
+    window.addEventListener("focus", update);
+    return () => { window.clearInterval(timer); window.removeEventListener("focus", update); };
+  }, []);
+  const changeQueue = async (items: DailyQueueItem[]) => {
+    if (queueWriteRef.current) throw new Error("A queue change is still saving. Please try again.");
+    if (!queueReady) throw new Error("Load the queue before making changes.");
+    queueWriteRef.current = true;
+    try { const normalized = normalizeQueue(items); await saveQueue(normalized); setQueueItems(normalized); }
+    finally { queueWriteRef.current = false; }
+  };
   const [projects, setProjects] = useState<ProjectRecord[]>([]);
   const [view, setView] = useState<View>("hud");
   const [completion, setCompletion] = useState<Completion | null>(null);
@@ -116,13 +137,13 @@ export default function App() {
   const effectiveFocusPhase: SessionPhase = activePlan?.phase ?? "work";
   const focusAudioIsPlaying = focusAudioActuallyPlaying && !focusAudioMuted && focusAudioVolume > 0;
 
-  const refreshSessions = useCallback(async () => {
+  const refreshSessions = useCallback(async (strict = false) => {
     try {
       const [nextSessions, nextProjects] = await Promise.all([getSessions(), getProjects()]);
       setSessions(nextSessions);
       setProjects(nextProjects);
     }
-    catch (error) { setDatabaseError(String(error)); }
+    catch (error) { setDatabaseError(String(error)); if (strict) throw error; }
   }, []);
 
   useEffect(() => {
@@ -130,8 +151,10 @@ export default function App() {
     const initialize = async () => {
       try {
         await initializeDatabase();
-        const records = await getSessions();
+        const [records, queue] = await Promise.all([getSessions(), getQueue()]);
         if (cancelled) return;
+        setQueueItems(queue);
+        setQueueReady(true);
         const pending = loadSessionSnapshot();
         const reconciled = pending ? reconcileSessionSnapshot(pending, records) : null;
         if (pending && !reconciled) clearSessionSnapshot();
@@ -456,7 +479,7 @@ export default function App() {
   }, [hudPopover]);
 
   const handleStartPause = useCallback(() => {
-    if (recovery || !recoveryChecked) return;
+    if (recovery || !recoveryChecked || queueTransitionRef.current) return;
     // Finished intervals must be saved and resolved before the timer can restart.
     if (activePlan && state.status === "finished") return;
     if (state.status !== "running" && !activePlan) {
@@ -511,14 +534,14 @@ export default function App() {
 
   const closeCompletedSession = async () => {
     try { await finishWorkSession(); }
-    catch (error) { setDatabaseError(String(error)); return; }
+    catch (error) { setDatabaseError(String(error)); throw error; }
     setActivePlan(null);
     setCompletion(null);
     setState(initialTimerState(settings.defaultMode, settings.defaultDuration));
   };
 
   const cancelOrReset = useCallback(async () => {
-    if (recovery || !recoveryChecked) return;
+    if (recovery || !recoveryChecked || queueTransitionRef.current) return;
     if (completion?.phase === "save-error") return;
     let savedPartial = false;
     // Completion saves asynchronously; don't record the same finished interval twice.
@@ -527,6 +550,7 @@ export default function App() {
       const focusSeconds = Math.max(1, Math.round(state.elapsedMs / 1000));
       if (!window.confirm(`End this session and save ${focusSeconds < 60 ? `${focusSeconds} sec` : `${Math.round(focusSeconds / 60)} min`} of focused time to history?`)) return;
       const record: SessionRecord = {
+        queueItemId: activePlan.queueItemId,
         workSessionId: activePlan.workSessionId,
         cycleCompleted: false,
         workSessionEndedAt: new Date().toISOString(),
@@ -559,8 +583,14 @@ export default function App() {
 
   const toggleClickThrough = useCallback(() => setSettings((previous) => ({ ...previous, clickThrough: !previous.clickThrough })), []);
 
-  const startPlan = useCallback((plan: SessionPlan) => {
+  const startPlan = useCallback((plan: SessionPlan, replaceFinished = false) => {
     if (recovery || !recoveryChecked) return;
+    if (activePlan && !(replaceFinished && state.status === "finished" && completion && completion.phase !== "save-error")) {
+      showStatus("Finish or end & save the current session before starting another task");
+      setView("hud");
+      return;
+    }
+    setCompletion(null);
     const preference = loadFocusAudioPreference();
     const selectedAudio = plan.focusAudio === undefined
       ? (preference.track ? { track: preference.track, volume: preference.volume, pauseWithTimer: true } : null)
@@ -579,9 +609,9 @@ export default function App() {
     setFocusAudioVolume(selectedAudio?.volume ?? preference.volume);
     setFocusAudioMuted(false);
     setFocusAudioError("");
-    ensureProjectTask(plan.project, plan.task).then(refreshSessions).catch((error) => setDatabaseError(String(error)));
+    ensureProjectTask(plan.project, plan.task).then(() => refreshSessions()).catch((error) => setDatabaseError(String(error)));
     setView("hud");
-  }, [recovery, recoveryChecked, refreshSessions, showStatus, settings.longBreakMinutes, settings.cyclesBeforeLongBreak]);
+  }, [recovery, recoveryChecked, activePlan, state.status, completion, refreshSessions, showStatus, settings.longBreakMinutes, settings.cyclesBeforeLongBreak]);
 
   const startDefaultDeepWork = useCallback(() => startPlan({
     kind: "deep-work",
@@ -616,6 +646,26 @@ export default function App() {
     setCompletion(null);
   }, [activePlan]);
 
+  const startQueueTask = async (item: DailyQueueItem, fromCompletion = false) => {
+    if (queueTransitionRef.current) return;
+    if (!queueReady || recovery || !recoveryChecked) throw new Error("Wait for session recovery and the queue to load.");
+    if (item.completedAt || !queueItems.some((entry) => entry.id === item.id && !entry.completedAt)) throw new Error("This task is no longer available. Reopen it in Today to continue.");
+    if (activePlan && !(fromCompletion && state.status === "finished" && completion && completion.phase !== "save-error")) throw new Error("Finish or end & save the current session first.");
+    if (activePlan?.kind === "pomodoro" && activePlan.phase === "work" && fromCompletion) throw new Error("Take your break before choosing the next task.");
+    queueTransitionRef.current = true;
+    try {
+      if (activePlan?.kind === "pomodoro" && activePlan.phase === "break" && item.kind === "pomodoro") {
+        // Keep the completed-cycle count and long-break rhythm when changing tasks.
+        startPhase("work", { ...activePlan, queueItemId: item.id, task: item.title, project: item.project, workMinutes: item.focusMinutes });
+        setSessionName(item.title);
+      } else {
+        if (activePlan) await finishWorkSession();
+        startPlan(queuePlan(item, settings.pomodoroBreakMinutes), fromCompletion);
+      }
+      setView("hud");
+    } finally { queueTransitionRef.current = false; }
+  };
+
   useEffect(() => {
     if (!activePlan || state.status !== "finished") return;
     const key = `${activePlan.startedAt}:${activePlan.phase}`;
@@ -625,6 +675,7 @@ export default function App() {
     const complete = async () => {
       if (activePlan.phase === "work") {
         const record: SessionRecord = {
+          queueItemId: activePlan.queueItemId,
           workSessionId: activePlan.workSessionId,
           cycleCompleted: true,
           startedAt: activePlan.startedAt,
@@ -645,7 +696,7 @@ export default function App() {
             await saveSession(record);
             savedCycleKeyRef.current = key;
           }
-          await refreshSessions();
+          await refreshSessions(true);
           goalReached = previousToday < settings.dailyGoalMinutes * 60 && previousToday + record.focusSeconds >= settings.dailyGoalMinutes * 60;
           todayMinutes = Math.round((previousToday + record.focusSeconds) / 60);
         } catch (error) {
@@ -664,7 +715,13 @@ export default function App() {
           const rest = nextBreak(completedPlan);
           setActivePlan(completedPlan);
           if (settings.autoStartBreak) startPhase("break", completedPlan);
-          else setCompletion({ phase: "work", title, body: `You focused for ${activePlan.workMinutes} minutes. Start a ${rest.minutes}-minute ${rest.kind === "long" ? "long " : ""}break?` });
+          else {
+            setCompletion({ phase: "work", title, body: `You focused for ${activePlan.workMinutes} minutes. Start a ${rest.minutes}-minute ${rest.kind === "long" ? "long " : ""}break?` });
+            if (activePlan.queueItemId) setView("hud");
+          }
+        } else if (activePlan.queueItemId) {
+          setCompletion({ phase: "work", title, body: "Choose what to focus on next." });
+          setView("hud");
         } else {
           // A completed standalone countdown needs no decision or blocking popup.
           setActivePlan(null);
@@ -675,9 +732,10 @@ export default function App() {
           showStatus(`${activePlan.workMinutes} minutes focused · Session complete`);
         }
       } else {
+        if (activePlan.queueItemId) setView("hud");
         if (soundSettings.current.sound && soundSettings.current.transitionSound) void playChime(soundSettings.current.volume, "break");
-        void notify(activePlan.breakKind === "long" ? "Long break finished" : "Break finished", settings.autoStartWork ? "Your next focus cycle is starting." : "Ready for your next focus cycle? Start it when you’re ready.", settings.notifications);
-        if (settings.autoStartWork) startPhase("work");
+        void notify(activePlan.breakKind === "long" ? "Long break finished" : "Break finished", shouldAutoStartWork(activePlan, settings.autoStartWork) ? "Your next focus cycle is starting." : "Ready for your next focus cycle? Start it when you’re ready.", settings.notifications);
+        if (shouldAutoStartWork(activePlan, settings.autoStartWork)) startPhase("work");
         else setCompletion({ phase: "break", title: activePlan.breakKind === "long" ? "Long break finished" : "Break finished", body: `Ready for focus cycle ${activePlan.cycle + 1}?` });
       }
     };
@@ -734,26 +792,26 @@ export default function App() {
 
   useEffect(() => {
     if (!appWindow) return;
-    if (settings.clickThrough && !recovery && !breakActivitiesOnScreen) {
+    if (settings.clickThrough && !recovery && !completion && view === "hud" && !breakActivitiesOnScreen) {
       setClickThroughNotice(true);
       const timer = window.setTimeout(() => { appWindow.setIgnoreCursorEvents(true).catch(console.error); setClickThroughNotice(false); }, 900);
       return () => window.clearTimeout(timer);
     }
     setClickThroughNotice(false);
     appWindow.setIgnoreCursorEvents(false).catch(console.error);
-  }, [settings.clickThrough, recovery, breakActivitiesOnScreen]);
+  }, [settings.clickThrough, recovery, completion, view, breakActivitiesOnScreen]);
 
   useEffect(() => {
     if (!appWindow) return;
     let cancelled = false;
     const resize = async () => {
       const compact = settings.displayMode === "compact";
-      const hudSize = showBreakActivities ? [420, 500] as const : completion && (compact || settings.size === "small") ? hudDimensions.medium : compact ? hudDimensions.small : hudDimensions[settings.size];
+      const hudSize = completion && activePlan?.queueItemId ? [420, 500] as const : showBreakActivities ? [420, 500] as const : completion && (compact || settings.size === "small") ? hudDimensions.medium : compact ? hudDimensions.small : hudDimensions[settings.size];
       const desired = recovery ? [420, 420] as const : view === "hud"
         ? hudSize
         : view === "launcher"
           ? [500, 650] as const
-          : [view === "dashboard" ? 580 : 500, 740] as const;
+          : [(view === "dashboard" || view === "today") ? 580 : 500, 740] as const;
       const monitor = await currentHudMonitor();
       const workArea = monitor?.workArea.size.toLogical(monitor.scaleFactor);
       const width = workArea ? Math.max(280, Math.min(desired[0], workArea.width - 16)) : desired[0];
@@ -764,7 +822,7 @@ export default function App() {
     };
     resize().catch(console.error);
     return () => { cancelled = true; };
-  }, [recovery, completion, showBreakActivities, settings.displayMode, settings.size, settings.position, view]);
+  }, [recovery, completion, activePlan?.queueItemId, showBreakActivities, settings.displayMode, settings.size, settings.position, view]);
 
   useEffect(() => {
     if (view === "hud") return;
@@ -829,6 +887,7 @@ export default function App() {
   }, [settings.cornerSnapping, view]);
 
   const adjustActiveTime = (minutes: number) => {
+    if (queueTransitionRef.current || state.status === "finished") return;
     setState((previous) => {
       if (previous.mode !== "countdown") return previous;
       const targetMs = adjustedTarget(previous.targetMs, previous.elapsedMs, minutes);
@@ -840,8 +899,30 @@ export default function App() {
     });
   };
 
-  const skipInterval = () => {
+  const skipInterval = async () => {
     if (!activePlan || activePlan.kind !== "pomodoro" || state.status === "finished") return;
+    if (activePlan.queueItemId) {
+      if (activePlan.phase === "break") {
+        setState((previous) => ({ ...previous, elapsedMs: previous.targetMs, status: "finished" }));
+        return;
+      }
+      if (queueTransitionRef.current) return;
+      queueTransitionRef.current = true;
+      setState((previous) => ({ ...previous, status: "paused" }));
+      try {
+        if (state.elapsedMs > 0) await saveSession({
+          queueItemId: activePlan.queueItemId, workSessionId: activePlan.workSessionId, cycleCompleted: false,
+          startedAt: activePlan.startedAt, endedAt: new Date().toISOString(), plannedMinutes: activePlan.workMinutes,
+          focusSeconds: Math.max(1, Math.round(state.elapsedMs / 1000)),
+          pausedSeconds: Math.round((pausedMsRef.current + (settings.trackPausedTime && pauseStartedRef.current !== null ? performance.now() - pauseStartedRef.current : 0)) / 1000),
+          project: activePlan.project, task: activePlan.task, sessionKind: activePlan.kind,
+        });
+        startPhase("break");
+        await refreshSessions();
+      } catch (error) { setDatabaseError(String(error)); }
+      finally { queueTransitionRef.current = false; }
+      return;
+    }
     startPhase(activePlan.phase === "work" ? "break" : "work");
   };
 
@@ -999,7 +1080,9 @@ export default function App() {
         if (snapshotError) { setView("hud"); return; }
         setHistoryReloadNotice("");
         await initializeDatabase();
-        const [records, nextProjects] = await Promise.all([getSessions(), getProjects()]);
+        const [records, nextProjects, queue] = await Promise.all([getSessions(), getProjects(), getQueue()]);
+        setQueueItems(queue);
+        setQueueReady(true);
         setSessions(records);
         setProjects(nextProjects);
         setHistoryReloadNotice("History reloaded. Retry any action that failed; no unfinished session was saved by reloading.");
@@ -1016,24 +1099,36 @@ export default function App() {
 
   if (recovery) return <main className="app-shell size-large" style={shellStyle}><section className="hud"><SessionRecovery snapshot={recovery} busy={recoveryBusy || !recoveryChecked} error={recoveryError} onResume={recoverSession} onDiscard={discardRecovery} /></section></main>;
 
-  if (view === "launcher") return <main className="app-shell app-shell--workspace" style={shellStyle}><SessionLauncher settings={settings} projects={projects} initialTask={sessionName} onStart={startPlan} onClose={() => setView("hud")} onDragStart={dragStart} /></main>;
+  if (view === "today") return <main className="app-shell app-shell--workspace" style={shellStyle}><TodayQueue
+    items={queueItems} sessions={sessions} projects={projects} today={today} activeId={activePlan?.queueItemId}
+    canStart={!activePlan && recoveryChecked} ready={queueReady} defaultMinutes={settings.pomodoroWorkMinutes}
+    onChange={changeQueue} onStart={startQueueTask} onClose={() => setView("hud")} onDragStart={dragStart} notices={errorNotices}
+  /></main>;
+  if (view === "launcher") return <main className="app-shell app-shell--workspace" style={shellStyle}><SessionLauncher settings={settings} projects={projects} initialTask={sessionName} onToday={() => setView("today")} onStart={startPlan} onClose={() => setView("hud")} onDragStart={dragStart} /></main>;
   if (view === "dashboard") return <main className="app-shell app-shell--workspace" style={shellStyle}><Dashboard
     notices={errorNotices}
+    onToday={() => setView("today")}
     sessions={sessions}
     goalMinutes={settings.dailyGoalMinutes}
     onDelete={async (id) => { await deleteSession(id); await refreshSessions(); }}
     onUpdate={async (session) => { await updateSession(session); refreshSessions(); }}
     onExport={(format) => exportSessions(format, sessions)}
-    onBackup={() => createBackup(settings, sessions)}
+    onBackup={async () => { if (!queueReady) throw new Error("Load the queue before creating a backup."); await createBackup(settings, sessions, queueItems); }}
     onRestore={async () => {
+      if (activePlan) throw new Error("End & save the current session before restoring a backup.");
       const backup = await selectBackup();
-      if (!backup || !await confirm(`Replace current history with ${backup.sessions.length} backed-up sessions and restore all backed-up settings? This can change autostart, shortcuts, and click-through behavior.`, { title: "Restore history and settings", kind: "warning" })) return;
-      await replaceSessions(backup.sessions);
+      if (!backup || !await confirm(`Replace current history and task queue with ${backup.sessions.length} backed-up sessions and ${(backup.queueItems ?? []).length} queue items, and restore all backed-up settings? This can change autostart, shortcuts, and click-through behavior.`, { title: "Restore history and settings", kind: "warning" })) return;
+      await replaceSessions(backup.sessions, backup.queueItems ?? []);
+      setQueueItems(backup.queueItems ?? []);
+      setQueueReady(true);
       setSettings((previous) => ({ ...previous, ...backup.settings, shortcuts: { ...previous.shortcuts, ...backup.settings.shortcuts } }));
       await refreshSessions();
     }}
     onResetDatabase={async () => {
+      if (activePlan) throw new Error("End & save the current session before resetting the database.");
       await resetDatabase();
+      setQueueItems([]);
+      setQueueReady(true);
       await refreshSessions();
     }}
     onClose={() => setView("hud")}
@@ -1046,7 +1141,7 @@ export default function App() {
   const statusLabel = activePlan?.phase === "break" && state.status === "running" ? "RECHARGING" : state.status === "running" ? "WORKING" : state.status === "paused" ? "PAUSED" : state.status === "finished" ? "COMPLETE" : "READY";
 
   const configuredSize = settings.displayMode === "compact" ? "small" : settings.size;
-  const effectiveSize = showBreakActivities ? "large" : completion && configuredSize === "small" ? "medium" : configuredSize;
+  const effectiveSize = completion && activePlan?.queueItemId ? "large" : showBreakActivities ? "large" : completion && configuredSize === "small" ? "medium" : configuredSize;
   return <main className={`app-shell size-${effectiveSize} display-${settings.displayMode}${showBreakActivities ? " break-activity-shell" : ""}`} style={shellStyle}>
     <section className={`hud hud--${state.status} ${activePlan?.phase === "break" ? "hud--break" : ""}`}>
       <header className="hud__header" data-tauri-drag-region onMouseDown={dragStart}>
@@ -1108,14 +1203,31 @@ export default function App() {
           </div>
           <input ref={activeAudioFileRef} className="sr-only" type="file" accept="audio/mpeg,audio/wav,audio/ogg,audio/flac,audio/mp4,audio/aac" onChange={(event) => { setActiveBrowserRecording(event.target.files?.[0]); event.target.value = ""; }} />
         </div>}
-        {activePlan && hudPopover === "more" && <div className="hud-popover hud-popover--more" role="dialog" aria-label="More session controls">
-          <div className="hud-popover__header"><span>Session controls</span><button type="button" onClick={() => setHudPopover(null)} aria-label="Close more controls">×</button></div>
-          <div className="hud-time-adjust"><span>Adjust remaining time</span><div><button type="button" onClick={() => adjustActiveTime(-5)}>−5 min</button><button type="button" onClick={() => adjustActiveTime(5)}>+5 min</button>{activePlan.kind === "pomodoro" && <button type="button" onClick={() => { skipInterval(); setHudPopover(null); }}>Skip</button>}</div></div>
-          <div className="hud-popover__actions"><button type="button" onClick={() => void cancelOrReset()}>End &amp; save</button><button type="button" onClick={() => { setHudPopover(null); setView("dashboard"); }}>Dashboard</button><button type="button" onClick={() => { setHudPopover(null); setView("settings"); }}>Settings</button></div>
+        {hudPopover === "more" && <div id="hud-more-controls" className="hud-popover hud-popover--more" role="dialog" aria-label="More controls">
+          <div className="hud-popover__header"><span>More controls</span><button type="button" onClick={() => setHudPopover(null)} aria-label="Close more controls">×</button></div>
+          {activePlan && <div className="hud-panel-icons hud-panel-icons--session" role="group" aria-label="Session controls">
+            {state.mode === "countdown" && <>
+              <button type="button" disabled={state.status === "finished"} title="Subtract 5 minutes" aria-label="Subtract 5 minutes" onClick={() => adjustActiveTime(-5)}><Icon name="minus" /></button>
+              <button type="button" disabled={state.status === "finished"} title="Add 5 minutes" aria-label="Add 5 minutes" onClick={() => adjustActiveTime(5)}><Icon name="plus" /></button>
+              {activePlan.kind === "pomodoro" && <button type="button" disabled={state.status === "finished"} title="Skip interval" aria-label="Skip interval" onClick={() => { void skipInterval(); setHudPopover(null); }}><Icon name="skip" /></button>}
+            </>}
+            <button type="button" title="End & save session" aria-label="End & save session" onClick={() => void cancelOrReset()}><Icon name="close" /></button>
+          </div>}
+          <div className="hud-panel-icons" role="group" aria-label="Audio and navigation">
+            <button type="button" className={`control-audio ${focusAudioIsPlaying ? "is-playing" : ""}`} title="Focus audio" aria-label="Focus audio" onClick={toggleAudioPopover}><Icon name="audio" /></button>
+            <button type="button" title="Productivity dashboard" aria-label="Productivity dashboard" onClick={() => { setHudPopover(null); setView("dashboard"); }}><Icon name="chart" /></button>
+            <button type="button" title="Settings" aria-label="Settings" onClick={() => { setHudPopover(null); setView("settings"); }}><Icon name="settings" /></button>
+          </div>
         </div>}
-        <Controls status={state.status} activeSession={Boolean(activePlan)} onStartPause={handleStartPause} onReset={cancelOrReset} onNewSession={() => setView("launcher")} onDashboard={() => setView("dashboard")} onOpenSettings={() => setView("settings")} onExpand={expandHud} audioPlaying={focusAudioIsPlaying} openPopover={hudPopover} onAudio={toggleAudioPopover} onMore={() => setHudPopover((openPopover) => openPopover === "more" ? null : "more")} />
+        <Controls status={state.status} activeSession={Boolean(activePlan)} onStartPause={handleStartPause} onReset={cancelOrReset} onToday={() => setView("today")} onNewSession={() => setView("launcher")} onExpand={expandHud} openPopover={hudPopover} onMore={() => setHudPopover((openPopover) => openPopover === "more" ? null : "more")} />
       </div>
-      {completion && <div className="completion-backdrop"><div className="completion-card"><span>{completion.phase === "save-error" ? "!" : completion.phase === "break" ? "☕" : "✓"}</span><h2>{completion.title}</h2><p>{completion.body}</p><div>{completion.phase === "work" && <button className="primary-action" onClick={() => startPhase("break")}>Start {activePlan && nextBreak(activePlan).kind === "long" ? "long " : ""}break</button>}{completion.phase === "break" && <button className="primary-action" onClick={() => startPhase("work")}>Start focus</button>}{completion.phase === "save-error" && <button className="primary-action" onClick={() => { completionKeyRef.current = ""; setCompletion(null); setActivePlan((plan) => plan ? { ...plan } : null); }}>Retry save</button>}{(completion.phase === "work" || completion.phase === "break") && <button onClick={closeCompletedSession}>End session</button>}</div></div></div>}
+      {completion && activePlan?.queueItemId && completion.phase !== "save-error" ? <QueueCompletion
+        plan={activePlan} item={queueItems.find((item) => item.id === activePlan.queueItemId)} next={nextQueueItem(queueItems, activePlan.queueItemId, today)} sessions={sessions}
+        onDone={async () => { await changeQueue(queueItems.map((item) => item.id === activePlan.queueItemId ? { ...item, completedAt: new Date().toISOString() } : item)); }}
+        onContinue={async () => { const item = queueItems.find((item) => item.id === activePlan.queueItemId); if (item) await startQueueTask(item, true); }}
+        onNext={async () => { const item = nextQueueItem(queueItems, activePlan.queueItemId, localDay()); if (item) await startQueueTask(item, true); }}
+        onBreak={() => startPhase("break")} onClose={closeCompletedSession}
+      /> : completion && <div className="completion-backdrop"><div className="completion-card"><span>{completion.phase === "save-error" ? "!" : completion.phase === "break" ? "☕" : "✓"}</span><h2>{completion.title}</h2><p>{completion.body}</p><div>{completion.phase === "work" && <button className="primary-action" onClick={() => startPhase("break")}>Start {activePlan && nextBreak(activePlan).kind === "long" ? "long " : ""}break</button>}{completion.phase === "break" && <button className="primary-action" onClick={() => startPhase("work")}>Start focus</button>}{completion.phase === "save-error" && <button className="primary-action" onClick={() => { completionKeyRef.current = ""; setCompletion(null); setActivePlan((plan) => plan ? { ...plan } : null); }}>Retry save</button>}{(completion.phase === "work" || completion.phase === "break") && <button onClick={() => void closeCompletedSession().catch(() => {})}>End session</button>}</div></div></div>}
       {statusNotice && <StatusToast key={statusNotice.id} text={statusNotice.text} onDismiss={dismissStatus} />}
       {clickThroughNotice && <div className="notice">Click-through on · Ctrl + Alt + C to disable</div>}
       {(shortcutError || databaseError) && <button className="error-notice" onClick={() => setView(databaseError && !autostartError ? "dashboard" : "settings")} title="View error details and recovery actions">{databaseError ? autostartError ? "Start on login unavailable" : snapshotError ? "Session recovery unavailable" : "History storage unavailable" : "Shortcuts unavailable"} · Review</button>}

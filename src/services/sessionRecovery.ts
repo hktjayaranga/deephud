@@ -1,3 +1,4 @@
+import { validateQueueId } from "./taskQueue";
 import { SessionRecord } from "./database";
 import { FocusAudioPlan, SessionPlan } from "./session";
 import { TimerState } from "./timer";
@@ -59,7 +60,7 @@ export function loadSessionSnapshot(): SessionSnapshot | null {
       || !bounded(timer.elapsedMs) || !bounded(timer.targetMs) || (timer.mode === "countdown" && (timer.targetMs === 0 || timer.elapsedMs > timer.targetMs))
       || (plan.kind === "stopwatch") !== (timer.mode === "stopwatch") || (plan.phase === "break" && plan.kind !== "pomodoro")) return null;
     // Durable audio references survive restart; temporary browser object URLs do not.
-    return { version: 1, savedAt: value.savedAt, pausedMs: value.pausedMs, warningShown: value.warningShown, plan: { ...breakProgress(plan), kind: plan.kind, workSessionId: plan.workSessionId, startedAt: plan.startedAt, task: plan.task, project: plan.project, workMinutes: plan.workMinutes, breakMinutes: plan.breakMinutes, phase: plan.phase, cycle: plan.cycle, focusAudio: durableAudio(plan.focusAudio) } as SessionPlan, timer: { mode: timer.mode, status: timer.status, elapsedMs: timer.elapsedMs, targetMs: timer.targetMs } as TimerState };
+    return { version: 1, savedAt: value.savedAt, pausedMs: value.pausedMs, warningShown: value.warningShown, plan: { queueItemId: validateQueueId(plan.queueItemId), ...breakProgress(plan), kind: plan.kind, workSessionId: plan.workSessionId, startedAt: plan.startedAt, task: plan.task, project: plan.project, workMinutes: plan.workMinutes, breakMinutes: plan.breakMinutes, phase: plan.phase, cycle: plan.cycle, focusAudio: durableAudio(plan.focusAudio) } as SessionPlan, timer: { mode: timer.mode, status: timer.status, elapsedMs: timer.elapsedMs, targetMs: timer.targetMs } as TimerState };
   } catch { return null; }
 }
 
@@ -85,7 +86,7 @@ export function reconcileSessionSnapshot(snapshot: SessionSnapshot, records: Ses
   }
   const saved = savedRecoveryCycle(snapshot, records);
   if (!saved) return snapshot;
-  if (saved.cycleCompleted !== true || snapshot.plan.kind !== "pomodoro") return null;
+  if (saved.cycleCompleted !== true || (snapshot.plan.kind !== "pomodoro" && !snapshot.plan.queueItemId)) return null;
   return { ...snapshot, timer: { ...snapshot.timer, elapsedMs: snapshot.timer.targetMs, status: "finished" } };
 }
 

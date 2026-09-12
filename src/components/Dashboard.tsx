@@ -12,6 +12,7 @@ interface Props {
   onBackup: () => Promise<void>;
   onRestore: () => Promise<void>;
   onResetDatabase: () => Promise<void>;
+  onToday: () => void;
   onClose: () => void;
   onDragStart: () => void;
   notices?: React.ReactNode;
@@ -19,7 +20,7 @@ interface Props {
 
 type Tab = "overview" | "history" | "projects";
 
-export default function Dashboard({ sessions, goalMinutes, onDelete, onUpdate, onExport, onBackup, onRestore, onResetDatabase, onClose, onDragStart, notices }: Props) {
+export default function Dashboard({ sessions, goalMinutes, onDelete, onUpdate, onExport, onBackup, onRestore, onResetDatabase, onToday, onClose, onDragStart, notices }: Props) {
   const [tab, setTab] = useState<Tab>("overview");
   const [search, setSearch] = useState("");
   const [projectFilter, setProjectFilter] = useState("");
@@ -43,6 +44,7 @@ export default function Dashboard({ sessions, goalMinutes, onDelete, onUpdate, o
   return <section className="workspace dashboard">
     <header className="workspace__header" data-tauri-drag-region onMouseDown={onDragStart}>
       <div><span className="eyebrow">YOUR FOCUS</span><h1>Productivity</h1></div>
+      <button type="button" className="workspace-nav-button" onClick={onToday}>Today</button>
       <div className="streak">🔥 {stats.streak} day streak</div>
       <button className="icon-button" onClick={onClose} title="Back to timer" aria-label="Back to timer">←</button>
     </header>

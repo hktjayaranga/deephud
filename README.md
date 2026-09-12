@@ -18,6 +18,7 @@ Stay focused on deep work without accounts, cloud sync, telemetry, or tracking.
 - Optional break activities: choose guided square breathing or continue with a normal break
 - Themes, custom accent, opacity, always-on-top, snapping, and click-through
 - Projects, tasks, editable history, daily/weekly statistics, goals, and streaks
+- Today’s task queue with ordering, session estimates, completion, carry-forward, and next-task choices
 - CSV/JSON export plus complete JSON backup and restore
 - Configurable global shortcuts and system-tray controls
 - Desktop notifications, completion sounds, warnings, and native idle handling
@@ -83,17 +84,42 @@ Artifacts are written beneath `src-tauri/target/release/bundle/`.
 
 ## Usage
 
-Use a quick-duration button on the HUD, or select the target button to prepare
-a Deep Work/Pomodoro session with a project and task. The chart button opens
-the productivity dashboard. The gear opens appearance, timer, integration,
-alert, idle, goal, and shortcut settings.
+Use a quick-duration button on the HUD, or select the **Focus** button next to Reset to prepare
+a Deep Work/Pomodoro session with a project and task. **More → Dashboard** opens
+the productivity dashboard. **More → Settings** opens appearance, timer,
+integration, alert, idle, goal, and shortcut settings.
 
 Completed work intervals are recorded; breaks do not inflate focus totals. The
 History page can search, filter, edit, delete, export, back up, and restore data.
 
+### Today’s task queue
+
+Open **Today’s task queue** from the full HUD, **Today** in the dashboard, or
+**Today’s queue** in the session launcher. The queue button stays available
+in the full HUD during a session.
+
+- Add a task with an optional project, estimated session count, minutes per
+  session, and Deep Work or Focus intervals mode. Use the arrows to arrange
+  unfinished tasks, or Edit to change a task before starting it.
+- Start launches that task using its saved duration. End & save an open session
+  before starting a different task from the queue.
+- Each completed work interval counts as one session. Partial work contributes
+  to focused time without increasing the completed count. Estimates do not
+  automatically mark tasks done; use the checkbox or **Mark task done**. Reopen
+  completed tasks with the same checkbox.
+- After Deep Work, choose to continue, mark the task done, switch to the next
+  unfinished task in today’s order, or end the session. Focus intervals preserve
+  their normal short/long breaks and offer this choice after the break, even
+  when automatic work-start is enabled. Automatic break-start still applies.
+- Unfinished tasks stay under **Unfinished from earlier** after midnight. Move
+  them to today to keep their progress. Removing a task keeps its focus history.
+- Queue items and their history links are stored locally and included in v2
+  JSON backups. Existing v1 backups remain readable; restoring one replaces the
+  queue with an empty queue. Database reset also clears the queue.
+
 ### Focus audio
 
-Open the Audio popover from the full HUD to control focus sound for any Deep
+Open **More → Focus audio** from the full HUD to control focus sound for any Deep
 Work, Pomodoro, quick-start, custom, countdown, or stopwatch session. Focus
 audio is off by default and plays entirely on the device.
 

@@ -1,9 +1,12 @@
 import { invoke } from "@tauri-apps/api/core";
 
+import { DailyQueueItem, QUEUE_KEY, validateQueue, validateQueueId } from "./taskQueue";
+
 export type SessionKind = "deep-work" | "pomodoro" | "stopwatch";
 
 export interface SessionRecord {
   id?: number;
+  queueItemId?: string | null;
   workSessionId?: string | null;
   workSessionEndedAt?: string | null;
   cycleCompleted?: boolean | null;
@@ -34,6 +37,7 @@ export async function initializeDatabase() {
 export async function saveSession(session: SessionRecord): Promise<void> {
   if (!inTauri()) {
     const sessions = await getSessions();
+    if (session.workSessionId && sessions.some((record) => record.workSessionId === session.workSessionId && record.startedAt === session.startedAt)) return;
     sessions.unshift({ ...session, id: Math.max(Date.now(), ...sessions.map((item) => (item.id ?? 0) + 1)) });
     localStorage.setItem(FALLBACK_KEY, JSON.stringify(sessions));
     return;
@@ -71,18 +75,30 @@ export async function deleteSession(id: number): Promise<void> {
 export async function resetDatabase(): Promise<void> {
   if (!inTauri()) {
     localStorage.removeItem(FALLBACK_KEY);
+    localStorage.removeItem(QUEUE_KEY);
     return;
   }
   await invoke("reset_database");
 }
 
-export async function replaceSessions(sessions: SessionRecord[]): Promise<void> {
+export async function replaceSessions(sessions: SessionRecord[], queueItems?: DailyQueueItem[]): Promise<void> {
   const validated = sessions.map(validateSession);
+  const queue = queueItems === undefined ? undefined : validateQueue(queueItems);
   if (!inTauri()) {
-    localStorage.setItem(FALLBACK_KEY, JSON.stringify(validated.map((session, index) => ({ ...session, id: Date.now() + index }))));
+    // Validate both parts before writing; roll back if browser storage fills up.
+    const oldSessions = localStorage.getItem(FALLBACK_KEY);
+    const oldQueue = localStorage.getItem(QUEUE_KEY);
+    try {
+      if (queue) localStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
+      localStorage.setItem(FALLBACK_KEY, JSON.stringify(validated.map((session, index) => ({ ...session, id: Date.now() + index }))));
+    } catch (error) {
+      if (oldSessions === null) localStorage.removeItem(FALLBACK_KEY); else localStorage.setItem(FALLBACK_KEY, oldSessions);
+      if (oldQueue === null) localStorage.removeItem(QUEUE_KEY); else localStorage.setItem(QUEUE_KEY, oldQueue);
+      throw error;
+    }
     return;
   }
-  await invoke("replace_sessions", { sessions: validated });
+  await invoke("replace_sessions", { sessions: validated, queueItems: queue ?? null });
 }
 
 export async function ensureProjectTask(project: string, task: string): Promise<void> {
@@ -116,10 +132,10 @@ function validateSession(value: SessionRecord): SessionRecord {
 }
 
 /** Optional metadata keeps existing records and v1 backups compatible. */
-export function validateSessionGrouping(value: { workSessionId?: unknown; workSessionEndedAt?: unknown; cycleCompleted?: unknown }) {
+export function validateSessionGrouping(value: { queueItemId?: unknown; workSessionId?: unknown; workSessionEndedAt?: unknown; cycleCompleted?: unknown }) {
   const { workSessionId, workSessionEndedAt, cycleCompleted } = value;
   if (workSessionId != null && (typeof workSessionId !== "string" || !workSessionId.length || workSessionId.length > 100 || workSessionId.includes("\0"))) throw new Error("Invalid work session id");
   if (workSessionEndedAt != null && (typeof workSessionEndedAt !== "string" || workSessionEndedAt.length > 40 || !Number.isFinite(Date.parse(workSessionEndedAt)))) throw new Error("Invalid work session end");
   if (cycleCompleted != null && typeof cycleCompleted !== "boolean") throw new Error("Invalid cycle completion");
-  return { workSessionId: workSessionId as string | undefined | null, workSessionEndedAt: workSessionEndedAt as string | undefined | null, cycleCompleted: cycleCompleted as boolean | undefined | null };
+  return { queueItemId: validateQueueId(value.queueItemId), workSessionId: workSessionId as string | undefined | null, workSessionEndedAt: workSessionEndedAt as string | undefined | null, cycleCompleted: cycleCompleted as boolean | undefined | null };
 }
