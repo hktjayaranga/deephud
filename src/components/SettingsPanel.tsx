@@ -28,6 +28,7 @@ const shortcutLabels: Record<ShortcutAction, string> = {
   showHide: "Show / Hide HUD",
   clickThrough: "Toggle click-through",
   startDeepWork: "Start Deep Work",
+  captureThought: "Save a thought for later",
 };
 
 export default function SettingsPanel({ settings, onChange, onClose, onDragStart, onShortcutRecordingChange, notices }: SettingsPanelProps) {

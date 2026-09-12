@@ -88,16 +88,16 @@ export default function TodayQueue({ items, sessions, projects, today, activeId,
   </section>;
 }
 
-type Draft = Pick<DailyQueueItem, "title" | "project" | "estimatedSessions" | "focusMinutes" | "kind">;
-function QueueEditor({ item, today, projects, defaultMinutes, busy, onSave, onCancel }: { item: DailyQueueItem | null; today: string; projects: ProjectRecord[]; defaultMinutes: number; busy: boolean; onSave: (draft: Draft) => void; onCancel: () => void }) {
-  const [draft, setDraft] = useState<Draft>(() => item ?? { title: "", project: "", estimatedSessions: 1, focusMinutes: Math.max(1, Math.min(240, defaultMinutes)), kind: "pomodoro" });
+export type QueueDraft = Pick<DailyQueueItem, "title" | "project" | "estimatedSessions" | "focusMinutes" | "kind">;
+export function QueueEditor({ item, today, projects, defaultMinutes, busy, onSave, onCancel, initialTitle = "" }: { item: DailyQueueItem | null; today: string; projects: ProjectRecord[]; defaultMinutes: number; busy: boolean; onSave: (draft: QueueDraft) => void; onCancel: () => void; initialTitle?: string }) {
+  const [draft, setDraft] = useState<QueueDraft>(() => item ?? { title: initialTitle, project: "", estimatedSessions: 1, focusMinutes: Math.max(1, Math.min(240, defaultMinutes)), kind: "pomodoro" });
   return <form className="queue-editor" onSubmit={(event) => { event.preventDefault(); if (draft.title.trim()) onSave({ ...draft, title: draft.title.trim(), project: draft.project.trim() }); }}>
     <h2>{item ? "Edit task" : "Add a task"}</h2>
     <fieldset disabled={busy}>
       <label>Task<input autoFocus required maxLength={500} value={draft.title} placeholder="What will you work on?" onChange={(event) => setDraft({ ...draft, title: event.target.value })} /></label>
       <label>Project <small>(optional)</small><input maxLength={200} list="queue-projects" value={draft.project} placeholder="e.g. DeepHUD" onChange={(event) => setDraft({ ...draft, project: event.target.value })} /><datalist id="queue-projects">{projects.map((project) => <option key={project.id} value={project.name} />)}</datalist></label>
       <div className="queue-editor__numbers"><label>Estimated sessions<input type="number" required min={1} max={100} step={1} value={draft.estimatedSessions || ""} onChange={(event) => setDraft({ ...draft, estimatedSessions: Number(event.target.value) })} /></label><label>Minutes per session<input type="number" required min={1} max={240} step={1} value={draft.focusMinutes || ""} onChange={(event) => setDraft({ ...draft, focusMinutes: Number(event.target.value) })} /></label></div>
-      <label>Session mode<select value={draft.kind} onChange={(event) => setDraft({ ...draft, kind: event.target.value as Draft["kind"] })}><option value="pomodoro">Focus intervals · with breaks</option><option value="deep-work">Deep Work · one focus block</option></select></label>
+      <label>Session mode<select value={draft.kind} onChange={(event) => setDraft({ ...draft, kind: event.target.value as QueueDraft["kind"] })}><option value="pomodoro">Focus intervals · with breaks</option><option value="deep-work">Deep Work · one focus block</option></select></label>
       <p className="queue-hint">{item?.scheduledDate ?? today} · {draft.estimatedSessions * draft.focusMinutes || 0} estimated focus minutes</p>
       <div className="edit-actions"><button type="button" onClick={onCancel}>Cancel</button><button type="submit" className="primary-action" disabled={!draft.title.trim()}>{busy ? "Saving…" : item ? "Save changes" : "Add task"}</button></div>
     </fieldset>

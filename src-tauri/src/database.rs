@@ -255,6 +255,10 @@ pub async fn delete_session(instances: State<'_, DbInstances>, id: i64) -> Resul
 pub async fn reset_database(instances: State<'_, DbInstances>) -> Result<(), String> {
     let pool = sqlite_pool(&instances).await?;
     let mut transaction = pool.begin().await.map_err(|error| error.to_string())?;
+    sqlx::query("DELETE FROM distraction_captures")
+        .execute(&mut *transaction)
+        .await
+        .map_err(|error| error.to_string())?;
     sqlx::query("DELETE FROM daily_queue_items")
         .execute(&mut *transaction)
         .await
@@ -282,6 +286,7 @@ pub async fn replace_sessions(
     instances: State<'_, DbInstances>,
     sessions: Vec<SessionRecord>,
     queue_items: Option<Vec<DailyQueueItem>>,
+    captures: Option<Vec<DistractionCapture>>,
 ) -> Result<(), String> {
     if sessions.len() > MAX_SESSIONS_PER_RESTORE {
         return Err("Backup contains too many sessions".into());
@@ -292,6 +297,9 @@ pub async fn replace_sessions(
     if let Some(items) = &queue_items {
         validate_queue(items)?;
     }
+    if let Some(items) = &captures {
+        validate_captures(items)?;
+    }
     let pool = sqlite_pool(&instances).await?;
     let mut transaction = pool.begin().await.map_err(|error| error.to_string())?;
     sqlx::query("DELETE FROM sessions")
@@ -300,6 +308,11 @@ pub async fn replace_sessions(
         .map_err(|error| error.to_string())?;
     if let Some(items) = &queue_items {
         write_queue(&mut transaction, items)
+            .await
+            .map_err(|error| error.to_string())?;
+    }
+    if let Some(items) = &captures {
+        write_captures(&mut transaction, items)
             .await
             .map_err(|error| error.to_string())?;
     }
@@ -428,11 +441,19 @@ async fn write_queue(
         .execute(&mut **transaction)
         .await?;
     for item in items {
-        sqlx::query("INSERT INTO daily_queue_items (id, scheduled_date, title, project, position, estimated_sessions, focus_minutes, kind, completed_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)")
+        insert_queue_item(transaction, item).await?;
+    }
+    Ok(())
+}
+
+async fn insert_queue_item(
+    transaction: &mut Transaction<'_, Sqlite>,
+    item: &DailyQueueItem,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("INSERT INTO daily_queue_items (id, scheduled_date, title, project, position, estimated_sessions, focus_minutes, kind, completed_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)")
             .bind(&item.id).bind(&item.scheduled_date).bind(item.title.trim()).bind(item.project.trim())
             .bind(item.position).bind(item.estimated_sessions).bind(item.focus_minutes).bind(&item.kind).bind(&item.completed_at)
             .execute(&mut **transaction).await?;
-    }
     Ok(())
 }
 
@@ -577,6 +598,339 @@ mod queue_tests {
             .await
             .unwrap();
             assert_eq!(seconds, 1500);
+        });
+    }
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DistractionCapture {
+    id: String,
+    text: String,
+    created_at: String,
+    work_session_id: Option<String>,
+    queue_item_id: Option<String>,
+    handled_at: Option<String>,
+    converted_queue_item_id: Option<String>,
+}
+
+fn validate_captures(captures: &[DistractionCapture]) -> Result<(), String> {
+    if captures.len() > 5000 {
+        return Err("Too many saved thoughts".into());
+    }
+    let mut ids = std::collections::HashSet::new();
+    for capture in captures {
+        if capture.id.is_empty()
+            || capture.id.len() > 100
+            || capture.id.contains('\0')
+            || !ids.insert(&capture.id)
+            || capture.text.trim().is_empty()
+            || capture.text.chars().count() > 500
+            || capture.text.contains('\0')
+        {
+            return Err("Invalid saved thought".into());
+        }
+        for id in [
+            &capture.work_session_id,
+            &capture.queue_item_id,
+            &capture.converted_queue_item_id,
+        ]
+        .into_iter()
+        .flatten()
+        {
+            if id.is_empty() || id.len() > 100 || id.contains('\0') {
+                return Err("Invalid thought link".into());
+            }
+        }
+        for date in std::iter::once(&capture.created_at).chain(capture.handled_at.iter()) {
+            if date.len() > 40 {
+                return Err("Invalid thought date".into());
+            }
+            DateTime::parse_from_rfc3339(date).map_err(|_| "Invalid thought date")?;
+        }
+    }
+    Ok(())
+}
+async fn insert_capture(
+    tx: &mut Transaction<'_, Sqlite>,
+    capture: &DistractionCapture,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("INSERT INTO distraction_captures (id, text, created_at, work_session_id, queue_item_id, handled_at, converted_queue_item_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)")
+        .bind(&capture.id).bind(capture.text.trim()).bind(&capture.created_at).bind(&capture.work_session_id).bind(&capture.queue_item_id).bind(&capture.handled_at).bind(&capture.converted_queue_item_id)
+        .execute(&mut **tx).await?;
+    Ok(())
+}
+async fn write_captures(
+    tx: &mut Transaction<'_, Sqlite>,
+    captures: &[DistractionCapture],
+) -> Result<(), sqlx::Error> {
+    sqlx::query("DELETE FROM distraction_captures")
+        .execute(&mut **tx)
+        .await?;
+    for capture in captures {
+        insert_capture(tx, capture).await?;
+    }
+    Ok(())
+}
+#[tauri::command]
+pub async fn get_captures(
+    instances: State<'_, DbInstances>,
+) -> Result<Vec<DistractionCapture>, String> {
+    let pool = sqlite_pool(&instances).await?;
+    let rows = sqlx::query("SELECT * FROM distraction_captures ORDER BY created_at DESC, id")
+        .fetch_all(&pool)
+        .await
+        .map_err(|error| error.to_string())?;
+    Ok(rows
+        .into_iter()
+        .map(|row| DistractionCapture {
+            id: row.get("id"),
+            text: row.get("text"),
+            created_at: row.get("created_at"),
+            work_session_id: row.get("work_session_id"),
+            queue_item_id: row.get("queue_item_id"),
+            handled_at: row.get("handled_at"),
+            converted_queue_item_id: row.get("converted_queue_item_id"),
+        })
+        .collect())
+}
+#[tauri::command]
+pub async fn save_capture(
+    instances: State<'_, DbInstances>,
+    mut capture: DistractionCapture,
+) -> Result<(), String> {
+    validate_captures(std::slice::from_ref(&capture))?;
+    let pool = sqlite_pool(&instances).await?;
+    let mut tx = pool.begin().await.map_err(|error| error.to_string())?;
+    let result =
+        sqlx::query("UPDATE distraction_captures SET text = ?2, handled_at = ?3 WHERE id = ?1")
+            .bind(&capture.id)
+            .bind(capture.text.trim())
+            .bind(&capture.handled_at)
+            .execute(&mut *tx)
+            .await
+            .map_err(|error| error.to_string())?;
+    if result.rows_affected() == 0 {
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM distraction_captures")
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(|error| error.to_string())?;
+        if count >= 5000 {
+            return Err("Your saved thoughts list is full".into());
+        }
+        capture.converted_queue_item_id = None;
+        insert_capture(&mut tx, &capture)
+            .await
+            .map_err(|error| error.to_string())?;
+    }
+    tx.commit().await.map_err(|error| error.to_string())
+}
+#[tauri::command]
+pub async fn delete_capture(instances: State<'_, DbInstances>, id: String) -> Result<(), String> {
+    let pool = sqlite_pool(&instances).await?;
+    sqlx::query("DELETE FROM distraction_captures WHERE id = ?1")
+        .bind(id)
+        .execute(&pool)
+        .await
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+async fn convert_capture_in_transaction(
+    tx: &mut Transaction<'_, Sqlite>,
+    id: &str,
+    item: &DailyQueueItem,
+) -> Result<String, String> {
+    validate_queue(std::slice::from_ref(item))?;
+    let row = sqlx::query("SELECT converted_queue_item_id FROM distraction_captures WHERE id = ?1")
+        .bind(id)
+        .fetch_optional(&mut **tx)
+        .await
+        .map_err(|error| error.to_string())?
+        .ok_or("This thought is no longer available")?;
+    if let Some(existing) = row.get::<Option<String>, _>("converted_queue_item_id") {
+        return Ok(existing);
+    }
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM daily_queue_items")
+        .fetch_one(&mut **tx)
+        .await
+        .map_err(|error| error.to_string())?;
+    if count >= 5000 {
+        return Err("Your task queue is full".into());
+    }
+    // Normalize that day's positions before appending, including after many removals.
+    let rows = sqlx::query(
+        "SELECT id FROM daily_queue_items WHERE scheduled_date = ?1 ORDER BY position, id",
+    )
+    .bind(&item.scheduled_date)
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(|error| error.to_string())?;
+    for (position, row) in rows.iter().enumerate() {
+        sqlx::query("UPDATE daily_queue_items SET position = ?2 WHERE id = ?1")
+            .bind(row.get::<String, _>("id"))
+            .bind(position as i64)
+            .execute(&mut **tx)
+            .await
+            .map_err(|error| error.to_string())?;
+    }
+    let mut appended = item.clone();
+    appended.position = rows.len() as i64;
+    insert_queue_item(tx, &appended)
+        .await
+        .map_err(|error| error.to_string())?;
+    sqlx::query("UPDATE distraction_captures SET converted_queue_item_id = ?2, handled_at = ?3 WHERE id = ?1")
+        .bind(id).bind(&item.id).bind(Utc::now().to_rfc3339()).execute(&mut **tx).await.map_err(|error| error.to_string())?;
+    Ok(item.id.clone())
+}
+#[tauri::command]
+pub async fn convert_capture(
+    instances: State<'_, DbInstances>,
+    id: String,
+    item: DailyQueueItem,
+) -> Result<String, String> {
+    let pool = sqlite_pool(&instances).await?;
+    let mut tx = pool.begin().await.map_err(|error| error.to_string())?;
+    let result = convert_capture_in_transaction(&mut tx, &id, &item).await?;
+    tx.commit().await.map_err(|error| error.to_string())?;
+    Ok(result)
+}
+
+#[cfg(test)]
+mod capture_tests {
+    use super::*;
+    fn capture() -> DistractionCapture {
+        DistractionCapture {
+            id: "thought-a".into(),
+            text: "Reply to email".into(),
+            created_at: "2026-09-12T09:00:00Z".into(),
+            work_session_id: Some("session-a".into()),
+            queue_item_id: Some("old-task".into()),
+            handled_at: None,
+            converted_queue_item_id: None,
+        }
+    }
+    fn task(id: &str) -> DailyQueueItem {
+        DailyQueueItem {
+            id: id.into(),
+            scheduled_date: "2026-09-12".into(),
+            title: "Email".into(),
+            project: "Personal".into(),
+            position: 5000,
+            estimated_sessions: 2,
+            focus_minutes: 25,
+            kind: "pomodoro".into(),
+            completed_at: None,
+        }
+    }
+    async fn database() -> SqlitePool {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        for migration in crate::database_migrations() {
+            sqlx::raw_sql(migration.sql).execute(&pool).await.unwrap();
+        }
+        pool
+    }
+    #[test]
+    fn capture_validation_checks_text_dates_links_and_duplicate_ids() {
+        assert!(validate_captures(&[capture()]).is_ok());
+        assert!(validate_captures(&[capture(), capture()]).is_err());
+        let mut invalid = capture();
+        invalid.text = " ".into();
+        assert!(validate_captures(&[invalid]).is_err());
+        let mut invalid = capture();
+        invalid.created_at = "2026-02-30T10:00:00Z".into();
+        assert!(validate_captures(&[invalid]).is_err());
+        let mut invalid = capture();
+        invalid.queue_item_id = Some("bad\0id".into());
+        assert!(validate_captures(&[invalid]).is_err());
+    }
+    #[test]
+    fn capture_conversion_is_atomic_and_retry_returns_original_task() {
+        tauri::async_runtime::block_on(async {
+            let pool = database().await;
+            let mut tx = pool.begin().await.unwrap();
+            insert_capture(&mut tx, &capture()).await.unwrap();
+            tx.commit().await.unwrap();
+            let mut tx = pool.begin().await.unwrap();
+            assert_eq!(
+                convert_capture_in_transaction(&mut tx, "thought-a", &task("task-a"))
+                    .await
+                    .unwrap(),
+                "task-a"
+            );
+            tx.commit().await.unwrap();
+            let mut tx = pool.begin().await.unwrap();
+            assert_eq!(
+                convert_capture_in_transaction(&mut tx, "thought-a", &task("task-b"))
+                    .await
+                    .unwrap(),
+                "task-a"
+            );
+            tx.commit().await.unwrap();
+            let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM daily_queue_items")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+            assert_eq!(count, 1);
+            let row = sqlx::query("SELECT converted_queue_item_id, handled_at, work_session_id FROM distraction_captures").fetch_one(&pool).await.unwrap();
+            assert_eq!(row.get::<String, _>("converted_queue_item_id"), "task-a");
+            assert!(row.get::<Option<String>, _>("handled_at").is_some());
+            assert_eq!(row.get::<String, _>("work_session_id"), "session-a");
+            let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sessions")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+            assert_eq!(count, 0);
+            sqlx::query("DELETE FROM distraction_captures")
+                .execute(&pool)
+                .await
+                .unwrap();
+            let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM daily_queue_items")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+            assert_eq!(count, 1);
+        });
+    }
+    #[test]
+    fn failed_conversion_rolls_back_task_and_capture_link() {
+        tauri::async_runtime::block_on(async {
+            let pool = database().await;
+            let mut tx = pool.begin().await.unwrap();
+            insert_capture(&mut tx, &capture()).await.unwrap();
+            tx.commit().await.unwrap();
+            sqlx::raw_sql("CREATE TRIGGER fail_capture_update BEFORE UPDATE ON distraction_captures BEGIN SELECT RAISE(ABORT, 'disk error'); END;").execute(&pool).await.unwrap();
+            let mut tx = pool.begin().await.unwrap();
+            assert!(
+                convert_capture_in_transaction(&mut tx, "thought-a", &task("task-a"))
+                    .await
+                    .is_err()
+            );
+            tx.rollback().await.unwrap();
+            let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM daily_queue_items")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+            assert_eq!(count, 0);
+            let link: Option<String> =
+                sqlx::query_scalar("SELECT converted_queue_item_id FROM distraction_captures")
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap();
+            assert!(link.is_none());
+            let mut tx = pool.begin().await.unwrap();
+            assert!(write_captures(&mut tx, &[capture(), capture()])
+                .await
+                .is_err());
+            tx.rollback().await.unwrap();
+            let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM distraction_captures")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+            assert_eq!(count, 1);
         });
     }
 }

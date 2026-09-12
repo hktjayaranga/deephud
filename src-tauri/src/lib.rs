@@ -139,6 +139,15 @@ fn database_migrations() -> Vec<Migration> {
                   CREATE INDEX idx_sessions_queue ON sessions(queue_item_id);",
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 5,
+            description: "distraction_capture",
+            sql: "CREATE TABLE distraction_captures (
+                id TEXT PRIMARY KEY NOT NULL, text TEXT NOT NULL, created_at TEXT NOT NULL,
+                work_session_id TEXT, queue_item_id TEXT, handled_at TEXT, converted_queue_item_id TEXT
+            ); CREATE INDEX idx_captures_created ON distraction_captures(created_at);",
+            kind: MigrationKind::Up,
+        },
     ]
 }
 
@@ -160,7 +169,11 @@ pub fn run() {
             database::ensure_project_task,
             database::get_projects,
             database::get_task_queue,
-            database::replace_task_queue
+            database::replace_task_queue,
+            database::get_captures,
+            database::save_capture,
+            database::delete_capture,
+            database::convert_capture
         ])
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_notification::init())

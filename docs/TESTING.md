@@ -56,3 +56,38 @@ Before release, verify in the desktop UI:
 8. Check small/full HUD controls, keyboard navigation, modal focus, long task
    names, light/dark themes, and click-through suspension on the Today workspace
    and completion prompt.
+
+
+## Distraction capture
+
+Automated checks cover capture validation, duplicate-save handling, failed-save
+retry, timer checkpoint preservation, task conversion and rollback, v1/v2/v3
+backups, shortcut migration, and capture-aware idle handling. `cargo test` also
+checks the SQLite migration and atomic conversion without creating focus records.
+
+Before release, verify on each supported desktop platform:
+
+1. Capture via Ctrl+Alt+N and the icon beside the session name while the timer runs, pauses,
+   finishes, and enters a break. Enter saves once; Escape cancels. The capture
+   itself must never pause/resume/reset a timer or change its elapsed time.
+2. Hide/minimize the HUD, enable click-through, and use the capture shortcut.
+   Confirm the input gets keyboard focus; closing it restores click-through.
+   Check compact-to-full behavior and that normal full-HUD dimensions stay fixed.
+3. Change/clear the shortcut and try an occupied combination. Existing conflict
+   feedback should appear, and the icon beside the session name must still work.
+4. Simulate storage failure. Keep the typed text, show the error, and retry once
+   storage is available. Capture several thoughts and restart to check persistence.
+5. During normal breaks and breathing, check the small header review action.
+   Review must open Dashboard → Saved for later with the unhandled count badge.
+   Confirm that opening that tab manually reaches the same review actions, and
+   that the control panel has no capture/review icons. Return to the timer without
+   losing breathing progress.
+6. Mark handled, reopen, keep for later, delete, and convert a thought using the
+   task form. Verify the task's project/estimate, no automatic timer start, and
+   no duplicate conversion after retry/restart. Delete a thought without deleting
+   its converted task.
+7. Enable native idle pause and type in the capture input beyond the idle threshold;
+   verify the timer stays running. Confirm ordinary idle handling resumes afterward.
+8. Back up and restore v3 captures and links. Test v1/v2 compatibility, failed
+   restore rollback, and reset behavior. Check keyboard focus and long input/error
+   text in both light and dark themes.

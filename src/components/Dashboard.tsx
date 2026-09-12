@@ -4,6 +4,10 @@ import { groupSessions, WorkSession } from "../services/sessionHistory";
 import HistoryConfirmation from "./HistoryConfirmation";
 
 interface Props {
+  tab: DashboardTab;
+  onTabChange: (tab: DashboardTab) => void;
+  savedThoughts: React.ReactNode;
+  pendingThoughtCount: number;
   sessions: SessionRecord[];
   goalMinutes: number;
   onDelete: (id: number) => Promise<void>;
@@ -18,10 +22,9 @@ interface Props {
   notices?: React.ReactNode;
 }
 
-type Tab = "overview" | "history" | "projects";
+export type DashboardTab = "overview" | "history" | "projects" | "saved";
 
-export default function Dashboard({ sessions, goalMinutes, onDelete, onUpdate, onExport, onBackup, onRestore, onResetDatabase, onToday, onClose, onDragStart, notices }: Props) {
-  const [tab, setTab] = useState<Tab>("overview");
+export default function Dashboard({ tab, onTabChange, savedThoughts, pendingThoughtCount, sessions, goalMinutes, onDelete, onUpdate, onExport, onBackup, onRestore, onResetDatabase, onToday, onClose, onDragStart, notices }: Props) {
   const [search, setSearch] = useState("");
   const [projectFilter, setProjectFilter] = useState("");
   const [dateFilter, setDateFilter] = useState("");
@@ -48,9 +51,10 @@ export default function Dashboard({ sessions, goalMinutes, onDelete, onUpdate, o
       <div className="streak">🔥 {stats.streak} day streak</div>
       <button className="icon-button" onClick={onClose} title="Back to timer" aria-label="Back to timer">←</button>
     </header>
-    <nav className="dashboard-tabs">{(["overview", "history", "projects"] as Tab[]).map((item) => <button key={item} className={tab === item ? "is-active" : ""} onClick={() => setTab(item)}>{item}</button>)}</nav>
+    <nav className="dashboard-tabs" aria-label="Dashboard sections">{(["overview", "history", "projects", "saved"] as DashboardTab[]).map((item) => <button type="button" key={item} className={tab === item ? "is-active" : ""} aria-current={tab === item ? "page" : undefined} onClick={() => onTabChange(item)}>{item === "saved" ? <>Saved for later <span className="dashboard-tab-badge" aria-label={`${pendingThoughtCount} unhandled thoughts`}>{pendingThoughtCount}</span></> : item}</button>)}</nav>
     <div className="workspace__content dashboard__content">
       {notices}
+      {tab === "saved" && savedThoughts}
       {tab === "overview" && <>
         <section className="goal-card">
           <div><span>Today's goal</span><b>{formatDuration(stats.todaySeconds)} <small>/ {formatDuration(goalMinutes * 60)}</small></b></div>

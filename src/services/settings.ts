@@ -1,6 +1,6 @@
 export type Theme = "dark" | "light" | "system";
 export type Accent = "mint" | "blue" | "violet" | "amber" | "custom";
-export type ShortcutAction = "startPause" | "reset" | "showHide" | "clickThrough" | "startDeepWork";
+export type ShortcutAction = "startPause" | "reset" | "showHide" | "clickThrough" | "startDeepWork" | "captureThought";
 export type IdleBehavior = "pause" | "exclude" | "count";
 export type HudSize = "small" | "medium" | "large";
 export type HudPosition =
@@ -89,6 +89,7 @@ export const defaultSettings: Settings = {
     showHide: "Ctrl+Alt+H",
     clickThrough: "Ctrl+Alt+C",
     startDeepWork: "Ctrl+Alt+S",
+    captureThought: "Ctrl+Alt+N",
   },
 };
 
@@ -163,6 +164,7 @@ export function validateSettings(value: unknown): Settings {
       showHide: shortcut("showHide"),
       clickThrough: shortcut("clickThrough"),
       startDeepWork: shortcut("startDeepWork"),
+      captureThought: shortcuts.captureThought === undefined ? defaultSettings.shortcuts.captureThought : shortcut("captureThought"),
     },
   };
 }

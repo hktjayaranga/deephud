@@ -19,6 +19,7 @@ Stay focused on deep work without accounts, cloud sync, telemetry, or tracking.
 - Themes, custom accent, opacity, always-on-top, snapping, and click-through
 - Projects, tasks, editable history, daily/weekly statistics, goals, and streaks
 - Today’s task queue with ordering, session estimates, completion, carry-forward, and next-task choices
+- Distraction capture with a global shortcut, optional break review, and conversion to Today’s queue
 - CSV/JSON export plus complete JSON backup and restore
 - Configurable global shortcuts and system-tray controls
 - Desktop notifications, completion sounds, warnings, and native idle handling
@@ -113,9 +114,41 @@ in the full HUD during a session.
   when automatic work-start is enabled. Automatic break-start still applies.
 - Unfinished tasks stay under **Unfinished from earlier** after midnight. Move
   them to today to keep their progress. Removing a task keeps its focus history.
-- Queue items and their history links are stored locally and included in v2
-  JSON backups. Existing v1 backups remain readable; restoring one replaces the
+- Queue items and their history links are stored locally and included in v3
+  JSON backups (v2 queue backups remain readable). Existing v1 backups remain readable; restoring one replaces the
   queue with an empty queue. Database reset also clears the queue.
+
+### Save a thought for later
+
+Press **Ctrl+Alt+N** or select the capture icon beside the session name to open a small input
+in the HUD. Type a thought and press Enter to save; Escape cancels. Capture does
+not pause, restart, or replace the timer. The shortcut can be changed or cleared
+under Settings → Keyboard shortcuts, with the same conflict reporting as other
+shortcuts.
+
+The shortcut brings a hidden/minimized HUD forward. Compact HUDs use the existing
+full layout so the input fits. Click-through is temporarily suspended while the
+input is open, then restored according to your current preference. Idle handling
+is deferred while capturing and for the configured idle threshold after your
+last capture interaction. A failed save keeps the draft and allows retry.
+
+During a break, the header offers a subtle **saved · Review** button when thoughts
+are pending. It opens **Dashboard → Saved for later**, also available anytime
+from the dashboard tabs. The tab badge counts unhandled thoughts. Review is
+optional and does not overlay the breathing activity or start work. Capture and
+review do not add icons to the control panel.
+
+- **Mark handled** moves a thought into Handled; Reopen returns it to review.
+- **Keep for later** sets it aside until you reopen the list.
+- **Add to Today** opens the usual task form with the thought pre-filled. Choose
+  a project, duration, and session estimate, then save. The task stays queued;
+  it does not start automatically. Repeated saves cannot create another task
+  from the same thought, even if the original task was later removed.
+- **Delete** removes only the thought; any task created from it is kept.
+
+Saved thoughts persist in local SQLite storage and v3 JSON backups. v1/v2 backups
+remain readable and restore an empty saved-thought list. Database reset also
+clears saved thoughts.
 
 ### Focus audio
 
@@ -148,6 +181,7 @@ HUD to change focus-audio controls.
 | Show / hide HUD | `Ctrl+Alt+H` |
 | Toggle click-through | `Ctrl+Alt+C` |
 | Start default Deep Work | `Ctrl+Alt+S` |
+| Save a thought for later | `Ctrl+Alt+N` |
 
 Every shortcut can be changed in Settings. If a combination is already owned
 by the desktop or another application, DeepHUD reports it as unavailable.

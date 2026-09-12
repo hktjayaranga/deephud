@@ -12,10 +12,13 @@ import ScrollingName from "./components/ScrollingName";
 import BreakActivities from "./components/BreakActivities";
 import { BreakActivityChoice, breakActivityState } from "./services/breakActivities";
 import Controls, { Icon } from "./components/Controls";
+import DistractionCaptureInput from "./components/DistractionCapture";
+import CaptureReview from "./components/CaptureReview";
+import { DistractionCapture, getCaptures, saveCapture, deleteCapture, convertCapture, pendingCaptures, deferIdleForCapture } from "./services/distractions";
 import TodayQueue from "./components/TodayQueue";
 import QueueCompletion from "./components/QueueCompletion";
 import { DailyQueueItem, getQueue, localDay, nextQueueItem, normalizeQueue, queuePlan, saveQueue } from "./services/taskQueue";
-import Dashboard from "./components/Dashboard";
+import Dashboard, { DashboardTab } from "./components/Dashboard";
 import SessionLauncher from "./components/SessionLauncher";
 import SettingsPanel from "./components/SettingsPanel";
 import { ProjectRecord, SessionRecord, deleteSession, ensureProjectTask, getProjects, getSessions, initializeDatabase, replaceSessions, resetDatabase, saveSession, updateSession } from "./services/database";
@@ -74,6 +77,17 @@ export default function App() {
   const [activePlan, setActivePlan] = useState<SessionPlan | null>(null);
   const [sessions, setSessions] = useState<SessionRecord[]>([]);
   const progressRecords = useMemo(() => activePlan?.workSessionId ? sessions.filter((record) => record.workSessionId === activePlan.workSessionId) : [], [sessions, activePlan?.workSessionId]);
+  const [view, setView] = useState<View>("hud");
+  const [dashboardTab, setDashboardTab] = useState<DashboardTab>("overview");
+  const [captures, setCaptures] = useState<DistractionCapture[]>([]);
+  const [capturesReady, setCapturesReady] = useState(false);
+  const [captureDraft, setCaptureDraft] = useState<DistractionCapture | null>(null);
+  const [captureBusy, setCaptureBusy] = useState(false);
+  const [captureError, setCaptureError] = useState("");
+  const captureSavingRef = useRef(false);
+  const captureActivityRef = useRef(-Infinity);
+  const captureOpen = captureDraft !== null && view === "hud";
+  const thoughtCount = pendingCaptures(captures).length;
   const [queueItems, setQueueItems] = useState<DailyQueueItem[]>([]);
   const [queueReady, setQueueReady] = useState(false);
   const queueWriteRef = useRef(false);
@@ -93,7 +107,6 @@ export default function App() {
     finally { queueWriteRef.current = false; }
   };
   const [projects, setProjects] = useState<ProjectRecord[]>([]);
-  const [view, setView] = useState<View>("hud");
   const [completion, setCompletion] = useState<Completion | null>(null);
   const [breakChoice, setBreakChoice] = useState<BreakActivityChoice | null>(null);
   const breakActivity = breakActivityState(activePlan, state, breakChoice);
@@ -132,10 +145,38 @@ export default function App() {
   });
   const [hudPopover, setHudPopover] = useState<"audio" | "more" | null>(null);
   const activeAudioFileRef = useRef<HTMLInputElement>(null);
-  const actionsRef = useRef({ startPause: () => {}, reset: () => {}, clickThrough: () => {}, startDeepWork: () => {}, dashboard: () => {} });
+  const actionsRef = useRef({ startPause: () => {}, reset: () => {}, clickThrough: () => {}, startDeepWork: () => {}, dashboard: () => {}, captureThought: () => {} });
   const effectiveFocusAudio = activePlan ? activePlan.focusAudio : standaloneFocusAudio;
   const effectiveFocusPhase: SessionPhase = activePlan?.phase ?? "work";
   const focusAudioIsPlaying = focusAudioActuallyPlaying && !focusAudioMuted && focusAudioVolume > 0;
+
+  const closeCapture = () => {
+    if (captureSavingRef.current) return;
+    captureActivityRef.current = performance.now();
+    setCaptureDraft(null); setCaptureError("");
+  };
+  const openCapture = async () => {
+    if (recovery) { setRecoveryError("Resolve the recovered session before capturing a thought."); return; }
+    captureActivityRef.current = performance.now();
+    setHudPopover(null); setView("hud");
+    setSettings((previous) => previous.displayMode === "compact" || previous.size === "small" ? { ...previous, displayMode: "full", size: previous.size === "small" ? "medium" : previous.size } : previous);
+    setCaptureDraft((previous) => previous ?? { id: crypto.randomUUID(), text: "", createdAt: new Date().toISOString(), workSessionId: activePlan?.workSessionId ?? null, queueItemId: activePlan?.queueItemId ?? null, handledAt: null, convertedQueueItemId: null });
+    try {
+      if (appWindow) { await appWindow.setIgnoreCursorEvents(false); await appWindow.show(); await appWindow.unminimize(); await appWindow.setFocus(); }
+    } catch (error) { setCaptureError(`Unable to bring the capture input forward: ${String(error)}`); }
+  };
+  const commitCapture = async () => {
+    if (!captureDraft?.text.trim() || captureSavingRef.current) return;
+    if (!capturesReady) { setCaptureError("Saved thoughts are not loaded yet. Open Saved for later and use Reload history if storage needs attention."); return; }
+    captureSavingRef.current = true; setCaptureBusy(true); setCaptureError("");
+    try {
+      const saved = { ...captureDraft, text: captureDraft.text.trim() };
+      await saveCapture(saved);
+      setCaptures((previous) => [...previous.filter((item) => item.id !== saved.id), saved]);
+      setCaptureDraft(null); showStatus("Saved for later");
+    } catch (error) { setCaptureError(`Could not save. Your thought is still here. ${String(error)}`); }
+    finally { captureSavingRef.current = false; setCaptureBusy(false); captureActivityRef.current = performance.now(); }
+  };
 
   const refreshSessions = useCallback(async (strict = false) => {
     try {
@@ -151,10 +192,12 @@ export default function App() {
     const initialize = async () => {
       try {
         await initializeDatabase();
-        const [records, queue] = await Promise.all([getSessions(), getQueue()]);
+        const [records, queue, thoughts] = await Promise.all([getSessions(), getQueue(), getCaptures()]);
         if (cancelled) return;
         setQueueItems(queue);
         setQueueReady(true);
+        setCaptures(thoughts);
+        setCapturesReady(true);
         const pending = loadSessionSnapshot();
         const reconciled = pending ? reconcileSessionSnapshot(pending, records) : null;
         if (pending && !reconciled) clearSessionSnapshot();
@@ -630,6 +673,7 @@ export default function App() {
     clickThrough: toggleClickThrough,
     startDeepWork: startDefaultDeepWork,
     dashboard: () => setView("dashboard"),
+    captureThought: () => { void openCapture(); },
   };
 
   const startPhase = useCallback((phase: SessionPhase, plan = activePlan) => {
@@ -717,11 +761,11 @@ export default function App() {
           if (settings.autoStartBreak) startPhase("break", completedPlan);
           else {
             setCompletion({ phase: "work", title, body: `You focused for ${activePlan.workMinutes} minutes. Start a ${rest.minutes}-minute ${rest.kind === "long" ? "long " : ""}break?` });
-            if (activePlan.queueItemId) setView("hud");
+            if (activePlan.queueItemId) setView((current) => current === "dashboard" ? current : "hud");
           }
         } else if (activePlan.queueItemId) {
           setCompletion({ phase: "work", title, body: "Choose what to focus on next." });
-          setView("hud");
+          setView((current) => current === "dashboard" ? current : "hud");
         } else {
           // A completed standalone countdown needs no decision or blocking popup.
           setActivePlan(null);
@@ -732,7 +776,7 @@ export default function App() {
           showStatus(`${activePlan.workMinutes} minutes focused · Session complete`);
         }
       } else {
-        if (activePlan.queueItemId) setView("hud");
+        if (activePlan.queueItemId) setView((current) => current === "dashboard" ? current : "hud");
         if (soundSettings.current.sound && soundSettings.current.transitionSound) void playChime(soundSettings.current.volume, "break");
         void notify(activePlan.breakKind === "long" ? "Long break finished" : "Break finished", shouldAutoStartWork(activePlan, settings.autoStartWork) ? "Your next focus cycle is starting." : "Ready for your next focus cycle? Start it when you’re ready.", settings.notifications);
         if (shouldAutoStartWork(activePlan, settings.autoStartWork)) startPhase("work");
@@ -755,7 +799,9 @@ export default function App() {
     if (!isTauri() || !settings.autoPauseIdle) return;
     const interval = window.setInterval(async () => {
       try {
+        if (deferIdleForCapture(captureOpen, captureActivityRef.current, settings.idleMinutes, performance.now())) return;
         const idleSeconds = await invoke<number>("system_idle_seconds");
+        if (deferIdleForCapture(captureOpen, captureActivityRef.current, settings.idleMinutes, performance.now())) return;
         if (settings.idleBehavior === "count") return;
         if (idleSeconds >= settings.idleMinutes * 60 && state.status === "running") {
           idlePausedRef.current = settings.idleBehavior === "exclude";
@@ -767,7 +813,7 @@ export default function App() {
       } catch (error) { console.warn("Idle detection unavailable", error); }
     }, 15_000);
     return () => window.clearInterval(interval);
-  }, [handleStartPause, settings.autoPauseIdle, settings.idleBehavior, settings.idleMinutes, state.status]);
+  }, [captureOpen, handleStartPause, settings.autoPauseIdle, settings.idleBehavior, settings.idleMinutes, state.status]);
 
   useEffect(() => { if (appWindow) appWindow.setAlwaysOnTop(settings.alwaysOnTop).catch(console.error); }, [settings.alwaysOnTop]);
   useEffect(() => {
@@ -792,14 +838,14 @@ export default function App() {
 
   useEffect(() => {
     if (!appWindow) return;
-    if (settings.clickThrough && !recovery && !completion && view === "hud" && !breakActivitiesOnScreen) {
+    if (settings.clickThrough && !captureOpen && !recovery && !completion && view === "hud" && !breakActivitiesOnScreen) {
       setClickThroughNotice(true);
       const timer = window.setTimeout(() => { appWindow.setIgnoreCursorEvents(true).catch(console.error); setClickThroughNotice(false); }, 900);
       return () => window.clearTimeout(timer);
     }
     setClickThroughNotice(false);
     appWindow.setIgnoreCursorEvents(false).catch(console.error);
-  }, [settings.clickThrough, recovery, completion, view, breakActivitiesOnScreen]);
+  }, [settings.clickThrough, captureOpen, recovery, completion, view, breakActivitiesOnScreen]);
 
   useEffect(() => {
     if (!appWindow) return;
@@ -852,6 +898,7 @@ export default function App() {
           if (event.shortcut === shortcuts.startPause) actionsRef.current.startPause();
           if (event.shortcut === shortcuts.reset) actionsRef.current.reset();
           if (event.shortcut === shortcuts.clickThrough) actionsRef.current.clickThrough();
+          if (event.shortcut === shortcuts.captureThought) actionsRef.current.captureThought();
           if (event.shortcut === shortcuts.startDeepWork) actionsRef.current.startDeepWork();
           if (event.shortcut === shortcuts.showHide) (await appWindow.isVisible()) ? await appWindow.hide() : await appWindow.show();
         });
@@ -1080,7 +1127,8 @@ export default function App() {
         if (snapshotError) { setView("hud"); return; }
         setHistoryReloadNotice("");
         await initializeDatabase();
-        const [records, nextProjects, queue] = await Promise.all([getSessions(), getProjects(), getQueue()]);
+        const [records, nextProjects, queue, thoughts] = await Promise.all([getSessions(), getProjects(), getQueue(), getCaptures()]);
+        setCaptures(thoughts); setCapturesReady(true);
         setQueueItems(queue);
         setQueueReady(true);
         setSessions(records);
@@ -1099,6 +1147,20 @@ export default function App() {
 
   if (recovery) return <main className="app-shell size-large" style={shellStyle}><section className="hud"><SessionRecovery snapshot={recovery} busy={recoveryBusy || !recoveryChecked} error={recoveryError} onResume={recoverSession} onDiscard={discardRecovery} /></section></main>;
 
+  const savedThoughts = <CaptureReview
+    captures={captures} projects={projects} defaultMinutes={settings.pomodoroWorkMinutes} ready={capturesReady}
+    onUpdate={async (capture) => { await saveCapture(capture); setCaptures((previous) => previous.map((item) => item.id === capture.id ? capture : item)); }}
+    onDelete={async (id) => { await deleteCapture(id); setCaptures((previous) => previous.filter((item) => item.id !== id)); }}
+    onConvert={async (capture, task) => {
+      if (!queueReady || queueWriteRef.current) throw new Error("Wait for the task queue to finish loading or saving.");
+      queueWriteRef.current = true;
+      try {
+        await convertCapture(capture.id, task);
+        const [queue, thoughts] = await Promise.all([getQueue(), getCaptures()]);
+        setQueueItems(queue); setCaptures(thoughts);
+      } finally { queueWriteRef.current = false; }
+    }}
+  />;
   if (view === "today") return <main className="app-shell app-shell--workspace" style={shellStyle}><TodayQueue
     items={queueItems} sessions={sessions} projects={projects} today={today} activeId={activePlan?.queueItemId}
     canStart={!activePlan && recoveryChecked} ready={queueReady} defaultMinutes={settings.pomodoroWorkMinutes}
@@ -1106,6 +1168,7 @@ export default function App() {
   /></main>;
   if (view === "launcher") return <main className="app-shell app-shell--workspace" style={shellStyle}><SessionLauncher settings={settings} projects={projects} initialTask={sessionName} onToday={() => setView("today")} onStart={startPlan} onClose={() => setView("hud")} onDragStart={dragStart} /></main>;
   if (view === "dashboard") return <main className="app-shell app-shell--workspace" style={shellStyle}><Dashboard
+    tab={dashboardTab} onTabChange={setDashboardTab} savedThoughts={savedThoughts} pendingThoughtCount={thoughtCount}
     notices={errorNotices}
     onToday={() => setView("today")}
     sessions={sessions}
@@ -1113,12 +1176,13 @@ export default function App() {
     onDelete={async (id) => { await deleteSession(id); await refreshSessions(); }}
     onUpdate={async (session) => { await updateSession(session); refreshSessions(); }}
     onExport={(format) => exportSessions(format, sessions)}
-    onBackup={async () => { if (!queueReady) throw new Error("Load the queue before creating a backup."); await createBackup(settings, sessions, queueItems); }}
+    onBackup={async () => { if (!queueReady || !capturesReady) throw new Error("Load the queue and saved thoughts before creating a backup."); await createBackup(settings, sessions, queueItems, captures); }}
     onRestore={async () => {
       if (activePlan) throw new Error("End & save the current session before restoring a backup.");
       const backup = await selectBackup();
-      if (!backup || !await confirm(`Replace current history and task queue with ${backup.sessions.length} backed-up sessions and ${(backup.queueItems ?? []).length} queue items, and restore all backed-up settings? This can change autostart, shortcuts, and click-through behavior.`, { title: "Restore history and settings", kind: "warning" })) return;
-      await replaceSessions(backup.sessions, backup.queueItems ?? []);
+      if (!backup || !await confirm(`Replace current history and task queue with ${backup.sessions.length} backed-up sessions and ${(backup.queueItems ?? []).length} queue items and ${(backup.captures ?? []).length} saved thoughts, and restore all backed-up settings? This can change autostart, shortcuts, and click-through behavior.`, { title: "Restore history and settings", kind: "warning" })) return;
+      await replaceSessions(backup.sessions, backup.queueItems ?? [], backup.captures ?? []);
+      setCaptures(backup.captures ?? []); setCapturesReady(true);
       setQueueItems(backup.queueItems ?? []);
       setQueueReady(true);
       setSettings((previous) => ({ ...previous, ...backup.settings, shortcuts: { ...previous.shortcuts, ...backup.settings.shortcuts } }));
@@ -1127,6 +1191,7 @@ export default function App() {
     onResetDatabase={async () => {
       if (activePlan) throw new Error("End & save the current session before resetting the database.");
       await resetDatabase();
+      setCaptures([]); setCapturesReady(true);
       setQueueItems([]);
       setQueueReady(true);
       await refreshSessions();
@@ -1136,6 +1201,7 @@ export default function App() {
   /></main>;
   if (view === "settings") return <main className="app-shell app-shell--settings" style={shellStyle}><SettingsPanel settings={settings} onChange={changeSettings} onClose={() => setView("hud")} onDragStart={dragStart} onShortcutRecordingChange={setShortcutRecording} notices={errorNotices} /></main>;
 
+  const captureButton = <button type="button" className="session-capture" title="Save a thought for later" aria-label="Save a thought for later" onClick={() => void openCapture()}><Icon name="capture" /></button>;
   const displayName = activePlan?.task || sessionName;
   const label = activePlan?.phase === "break" ? (activePlan.breakKind === "long" ? "LONG BREAK" : "BREAK") : activePlan ? "DEEP WORK" : state.mode === "stopwatch" ? "DEEP WORK" : "COUNTDOWN";
   const statusLabel = activePlan?.phase === "break" && state.status === "running" ? "RECHARGING" : state.status === "running" ? "WORKING" : state.status === "paused" ? "PAUSED" : state.status === "finished" ? "COMPLETE" : "READY";
@@ -1147,7 +1213,7 @@ export default function App() {
       <header className="hud__header" data-tauri-drag-region onMouseDown={dragStart}>
         <button className="brand" onClick={() => !activePlan && setState((previous) => initialTimerState(previous.mode === "stopwatch" ? "countdown" : "stopwatch", settings.defaultDuration))} title={activePlan ? label : "Switch timer mode"}><span className="status-dot" /><span>{label}</span></button>
         <div className="hud__header-actions">
-          <span className={`status-label status-label--${state.status}`}>{statusLabel}</span>
+          {activePlan?.phase === "break" && thoughtCount > 0 ? <button type="button" className="status-label capture-review-link" title={`${thoughtCount} thoughts saved · Review`} onClick={() => { setHudPopover(null); setDashboardTab("saved"); setView("dashboard"); }}>{thoughtCount} saved · Review</button> : <span className={`status-label status-label--${state.status}`}>{statusLabel}</span>}
           <button
             className="hud__minimize"
             type="button"
@@ -1172,7 +1238,7 @@ export default function App() {
             setHudPopover(null);
           }}
         /> : <>
-        {activePlan ? <div className="active-intent"><ScrollingName className="active-intent__project" text={activePlan.project || "FOCUS SESSION"} /><ScrollingName className="active-intent__task" text={displayName || "Deep Work"} /></div> : <label className="session-field"><span className="sr-only">Session name</span><input value={sessionName} onChange={(event) => setSessionName(event.target.value)} maxLength={80} placeholder="What are you focusing on?" /></label>}
+        {activePlan ? <div className="active-intent"><ScrollingName className="active-intent__project" text={activePlan.project || "FOCUS SESSION"} /><div className="session-name-row"><ScrollingName className="active-intent__task" text={displayName || "Deep Work"} />{captureButton}</div></div> : <div className="session-field session-name-row"><label><span className="sr-only">Session name</span><input value={sessionName} onChange={(event) => setSessionName(event.target.value)} maxLength={80} placeholder="What are you focusing on?" /></label>{captureButton}</div>}
         <Timer state={state} sessionName={displayName} sessionSummary={sessionProgress(activePlan, state, progressRecords)} endingSoon={isFocusReminderDue(state, activePlan?.phase, settings.fiveMinuteWarning)} />
         {!activePlan && <div className="presets" aria-label="Quick start presets">{[25, 50, 90, 120].map((minutes) => <button key={minutes} onClick={() => startPlan({ kind: "deep-work", workMinutes: minutes, breakMinutes: settings.pomodoroBreakMinutes, phase: "work", project: "", task: sessionName, startedAt: new Date().toISOString(), cycle: 1 })}>{minutes === 120 ? "2 hr" : `${minutes} min`}</button>)}<button onClick={() => setCustomPresetOpen((open) => !open)}>Custom</button></div>}
         {customPresetOpen && !activePlan && <form className="custom-preset" onSubmit={(event) => { event.preventDefault(); startPlan({ kind: "deep-work", workMinutes: Math.max(1, customMinutes), breakMinutes: settings.pomodoroBreakMinutes, phase: "work", project: "", task: sessionName, startedAt: new Date().toISOString(), cycle: 1 }); setCustomPresetOpen(false); }}><input aria-label="Custom duration in minutes" type="number" min="1" max="1440" value={customMinutes} onChange={(event) => setCustomMinutes(Number(event.target.value))} autoFocus /><span>min</span><button type="submit">Start</button></form>}
@@ -1221,13 +1287,14 @@ export default function App() {
         </div>}
         <Controls status={state.status} activeSession={Boolean(activePlan)} onStartPause={handleStartPause} onReset={cancelOrReset} onToday={() => setView("today")} onNewSession={() => setView("launcher")} onExpand={expandHud} openPopover={hudPopover} onMore={() => setHudPopover((openPopover) => openPopover === "more" ? null : "more")} />
       </div>
-      {completion && activePlan?.queueItemId && completion.phase !== "save-error" ? <QueueCompletion
+      {captureOpen && <DistractionCaptureInput text={captureDraft.text} busy={captureBusy} error={captureError} onChange={(text) => { captureActivityRef.current = performance.now(); setCaptureDraft((previous) => previous ? { ...previous, text } : previous); }} onSave={() => void commitCapture()} onCancel={closeCapture} />}
+      {!captureOpen && (completion && activePlan?.queueItemId && completion.phase !== "save-error" ? <QueueCompletion
         plan={activePlan} item={queueItems.find((item) => item.id === activePlan.queueItemId)} next={nextQueueItem(queueItems, activePlan.queueItemId, today)} sessions={sessions}
         onDone={async () => { await changeQueue(queueItems.map((item) => item.id === activePlan.queueItemId ? { ...item, completedAt: new Date().toISOString() } : item)); }}
         onContinue={async () => { const item = queueItems.find((item) => item.id === activePlan.queueItemId); if (item) await startQueueTask(item, true); }}
         onNext={async () => { const item = nextQueueItem(queueItems, activePlan.queueItemId, localDay()); if (item) await startQueueTask(item, true); }}
         onBreak={() => startPhase("break")} onClose={closeCompletedSession}
-      /> : completion && <div className="completion-backdrop"><div className="completion-card"><span>{completion.phase === "save-error" ? "!" : completion.phase === "break" ? "☕" : "✓"}</span><h2>{completion.title}</h2><p>{completion.body}</p><div>{completion.phase === "work" && <button className="primary-action" onClick={() => startPhase("break")}>Start {activePlan && nextBreak(activePlan).kind === "long" ? "long " : ""}break</button>}{completion.phase === "break" && <button className="primary-action" onClick={() => startPhase("work")}>Start focus</button>}{completion.phase === "save-error" && <button className="primary-action" onClick={() => { completionKeyRef.current = ""; setCompletion(null); setActivePlan((plan) => plan ? { ...plan } : null); }}>Retry save</button>}{(completion.phase === "work" || completion.phase === "break") && <button onClick={() => void closeCompletedSession().catch(() => {})}>End session</button>}</div></div></div>}
+      /> : completion && <div className="completion-backdrop"><div className="completion-card"><span>{completion.phase === "save-error" ? "!" : completion.phase === "break" ? "☕" : "✓"}</span><h2>{completion.title}</h2><p>{completion.body}</p><div>{completion.phase === "work" && <button className="primary-action" onClick={() => startPhase("break")}>Start {activePlan && nextBreak(activePlan).kind === "long" ? "long " : ""}break</button>}{completion.phase === "break" && <button className="primary-action" onClick={() => startPhase("work")}>Start focus</button>}{completion.phase === "save-error" && <button className="primary-action" onClick={() => { completionKeyRef.current = ""; setCompletion(null); setActivePlan((plan) => plan ? { ...plan } : null); }}>Retry save</button>}{(completion.phase === "work" || completion.phase === "break") && <button onClick={() => void closeCompletedSession().catch(() => {})}>End session</button>}</div></div></div>)}
       {statusNotice && <StatusToast key={statusNotice.id} text={statusNotice.text} onDismiss={dismissStatus} />}
       {clickThroughNotice && <div className="notice">Click-through on · Ctrl + Alt + C to disable</div>}
       {(shortcutError || databaseError) && <button className="error-notice" onClick={() => setView(databaseError && !autostartError ? "dashboard" : "settings")} title="View error details and recovery actions">{databaseError ? autostartError ? "Start on login unavailable" : snapshotError ? "Session recovery unavailable" : "History storage unavailable" : "Shortcuts unavailable"} · Review</button>}

@@ -516,3 +516,20 @@ kbd { min-width: 23px; padding: 4px 5px; border: 1px solid var(--line); border-b
 .hud-panel-icons button:hover:not(:disabled) { background: var(--button-hover); }
 .hud-panel-icons svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .controls button:disabled { opacity: .4; cursor: not-allowed; transform: none; }
+.distraction-capture { z-index: 30; bottom: 58px; }
+.distraction-capture input { width: 100%; min-width: 0; padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-raised); color: var(--text); font-size: 11px; }
+.distraction-capture .inline-error { margin-top: 8px; max-height: 56px; overflow-y: auto; font-size: 10px; }
+.capture-review-link { border: 1px solid var(--line); cursor: pointer; letter-spacing: 0; }
+.capture-item > p { margin-bottom: 8px; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.capture-item time { color: var(--muted); font-size: 9px; }
+.hud-panel-icons { flex-wrap: wrap; }
+
+/* Quick capture stays beside the session name without adding a HUD row. */
+.session-name-row { position: relative; width: 100%; min-width: 0; padding-inline: 25px; }
+.session-capture { position: absolute; right: 1px; top: 50%; transform: translateY(-50%); display: grid; place-items: center; width: 20px; height: 20px; padding: 0; border: 1px solid transparent; border-radius: 6px; background: var(--button); color: var(--muted); cursor: pointer; }
+.session-capture:hover { color: var(--accent); border-color: var(--line); background: var(--button-hover); }
+.session-capture svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.active-intent .session-name-row { min-height: 21px; display: flex; align-items: center; }
+.dashboard-tabs button { white-space: nowrap; }
+.dashboard-tab-badge { display: inline-block; min-width: 16px; margin-left: 3px; padding: 1px 4px; border-radius: 99px; background: var(--button); color: var(--muted); font-size: 8px; }
+.dashboard-tabs .is-active .dashboard-tab-badge { background: rgba(var(--accent-rgb), .12); color: var(--accent); }
