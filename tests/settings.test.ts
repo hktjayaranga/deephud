@@ -23,3 +23,14 @@ describe("settings persistence", () => {
     expect(loadSettings()).toEqual(defaultSettings);
   });
 });
+
+it("preserves timer sound preferences across reloads", () => {
+  saveSettings({ ...defaultSettings, sound: false, countdownSound: false, transitionSound: true, volume: 23 });
+  expect(loadSettings()).toMatchObject({ sound: false, countdownSound: false, transitionSound: true, volume: 23 });
+});
+
+it("migrates older sound settings without unmuting the user", () => {
+  const { countdownSound, transitionSound, ...legacy } = defaultSettings;
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...legacy, sound: false }));
+  expect(loadSettings()).toMatchObject({ sound: false, countdownSound: true, transitionSound: true });
+});

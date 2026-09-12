@@ -21,7 +21,7 @@ Stay focused on deep work without accounts, cloud sync, telemetry, or tracking.
 - CSV/JSON export plus complete JSON backup and restore
 - Configurable global shortcuts and system-tray controls
 - Desktop notifications, completion sounds, warnings, and native idle handling
-- Global focus audio with real rain, forest, and calm-waterfall recordings, local audio files, instant previews, and remembered volume
+- Global focus audio with real rain and calm-waterfall recordings, local audio files, instant previews, and remembered volume
 - Start on login, close to tray, and native installers for all three desktop platforms
 - Offline-only SQLite storage with no tracking
 
@@ -97,7 +97,7 @@ Open the Audio popover from the full HUD to control focus sound for any Deep
 Work, Pomodoro, quick-start, custom, countdown, or stopwatch session. Focus
 audio is off by default and plays entirely on the device.
 
-- Choose the included Heavy rain, Forest, or Calm waterfall field recording,
+- Choose the included Heavy rain or Calm waterfall field recording,
   or add MP3, WAV, OGG, FLAC, M4A, or AAC files to an offline local library.
   User recordings are copied into DeepHUD's app-data folder and can be renamed
   or removed without changing the original files; built-in recordings remain

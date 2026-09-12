@@ -5,7 +5,6 @@ import { FocusAudioPlan, FocusAudioTrack } from "./session";
 export const FOCUS_AUDIO_EXTENSIONS = ["mp3", "wav", "ogg", "flac", "m4a", "aac"] as const;
 export const RECORDED_FOCUS_PRESETS: FocusAudioTrack[] = [
   { name: "Heavy rain", source: "/audio/rain.ogg" },
-  { name: "Forest", source: "/audio/forest.ogg" },
   { name: "Calm waterfall", source: "/audio/waterfall.ogg" },
 ];
 export const FOCUS_AUDIO_PREFERENCE_KEY = "deephud:focus-audio:v1";

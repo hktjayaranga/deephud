@@ -464,3 +464,8 @@ kbd { min-width: 23px; padding: 4px 5px; border: 1px solid var(--line); border-b
 .size-small .timer__summary { position: absolute; left: 12px; right: 12px; bottom: 3px; margin: 0; padding: 2px 6px; border-radius: 5px; background: var(--surface-raised); text-align: center; font-size: 9px; opacity: 0; pointer-events: none; transition: opacity 140ms ease; }
 .size-small .timer:hover .timer__summary, .size-small .timer:focus .timer__summary { opacity: 1; }
 @media (prefers-reduced-motion: reduce) { .size-small .timer__summary { transition: none; } }
+
+.sound-previews button:hover:not(:disabled) { color: var(--text); background: var(--surface); }
+.sound-previews button[aria-pressed="true"] { color: #102018; background: var(--accent); }
+.sound-previews button:disabled { opacity: .4; cursor: not-allowed; }
+.sound-preview-status { margin: 0; padding: 8px 14px 12px; color: var(--muted); font-size: 11px; line-height: 1.5; }

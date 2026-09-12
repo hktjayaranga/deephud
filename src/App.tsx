@@ -18,7 +18,8 @@ import SettingsPanel from "./components/SettingsPanel";
 import { ProjectRecord, SessionRecord, deleteSession, ensureProjectTask, getProjects, getSessions, initializeDatabase, replaceSessions, resetDatabase, saveSession, updateSession } from "./services/database";
 import { createBackup, exportSessions, selectBackup } from "./services/dataTransfer";
 import { FOCUS_AUDIO_EXTENSIONS, RECORDED_FOCUS_PRESETS, UserAudioRecording, importUserAudioRecording, isSupportedRecording, loadFocusAudioPreference, loadUserAudioLibrary, removeUserAudioRecording, renameUserAudioRecording, resolveFocusAudio, saveFocusAudioPreference, saveFocusAudioVolume, toFocusAudioTrack } from "./services/focusAudio";
-import { playChime, notify, unlockAudio } from "./services/notifications";
+import { notify } from "./services/notifications";
+import { playChime, scheduleCountdown, stopTimerSounds, unlockAudio } from "./services/timerSounds";
 import { FocusAudioPlan, FocusAudioTrack, SessionPhase, SessionPlan, completeFocusCycle, nextBreak, transitionSessionPhase } from "./services/session";
 import { TimerState, initialTimerState } from "./services/timer";
 import { adjustedTarget, advanceElapsed, hasFinished } from "./services/timerMath";
@@ -289,6 +290,34 @@ export default function App() {
       window.removeEventListener("keydown", unlock);
     };
   }, []);
+
+  // Reschedule on timer controls, not on display ticks. The final ten
+  // seconds play as one media clip, including when the window is hidden.
+  const soundSettings = useRef(settings);
+  soundSettings.current = settings;
+  const soundTimerState = useRef(state);
+  soundTimerState.current = state;
+  useEffect(() => {
+    const timer = soundTimerState.current;
+    if (timer.status === "running" && timer.mode === "countdown" && settings.sound && settings.countdownSound) {
+      void scheduleCountdown(settings.volume, timer.targetMs - timer.elapsedMs);
+    }
+    return () => stopTimerSounds("countdown");
+  }, [state.status, state.mode, state.targetMs, activePlan?.startedAt, activePlan?.phase, settings.sound, settings.countdownSound, settings.volume]);
+
+  const previousSoundStatus = useRef(state.status);
+  useEffect(() => {
+    // A completed standalone timer returns to idle while its chime is playing.
+    const reset = state.status === "idle" && previousSoundStatus.current !== "finished";
+    previousSoundStatus.current = state.status;
+    if (state.status === "paused" || reset || !settings.sound || settings.volume === 0) stopTimerSounds();
+    if (!settings.transitionSound) {
+      stopTimerSounds("work");
+      stopTimerSounds("break");
+    }
+  }, [state.status, settings.sound, settings.transitionSound, settings.volume]);
+
+  useEffect(() => () => stopTimerSounds(), []);
 
   useEffect(() => { localStorage.setItem("deepwork-hud:session", sessionName); }, [sessionName]);
 
@@ -594,7 +623,6 @@ export default function App() {
     completionKeyRef.current = key;
     const alreadySaved = savedCycleKeyRef.current === key;
     const complete = async () => {
-      if (!alreadySaved && settings.sound) void playChime(settings.volume, activePlan.phase === "work" ? "work" : "break");
       if (activePlan.phase === "work") {
         const record: SessionRecord = {
           workSessionId: activePlan.workSessionId,
@@ -627,7 +655,10 @@ export default function App() {
         }
         const title = activePlan.kind === "pomodoro" ? "Focus cycle completed" : "Deep work session completed";
         const notice = focusCompletionNotice(activePlan.kind, activePlan.workMinutes, goalReached, todayMinutes, settings.motivationalMessages);
-        if (!alreadySaved) void notify(notice.title, notice.body, settings.notifications, notice.motivation);
+        if (!alreadySaved) {
+          if (soundSettings.current.sound && soundSettings.current.transitionSound) void playChime(soundSettings.current.volume, "work");
+          void notify(notice.title, notice.body, settings.notifications, notice.motivation);
+        }
         if (activePlan.kind === "pomodoro") {
           const completedPlan = completeFocusCycle(activePlan);
           const rest = nextBreak(completedPlan);
@@ -644,6 +675,7 @@ export default function App() {
           showStatus(`${activePlan.workMinutes} minutes focused · Session complete`);
         }
       } else {
+        if (soundSettings.current.sound && soundSettings.current.transitionSound) void playChime(soundSettings.current.volume, "break");
         void notify(activePlan.breakKind === "long" ? "Long break finished" : "Break finished", settings.autoStartWork ? "Your next focus cycle is starting." : "Ready for your next focus cycle? Start it when you’re ready.", settings.notifications);
         if (settings.autoStartWork) startPhase("work");
         else setCompletion({ phase: "break", title: activePlan.breakKind === "long" ? "Long break finished" : "Break finished", body: `Ready for focus cycle ${activePlan.cycle + 1}?` });

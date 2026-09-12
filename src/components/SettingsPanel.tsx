@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Accent, HudPosition, HudSize, Settings, ShortcutAction, Theme } from "../services/settings";
+import { previewTimerSound, stopTimerSounds } from "../services/timerSounds";
 import { captureShortcut, displayShortcut, shortcutIdentity } from "../services/shortcuts";
 
 interface SettingsPanelProps {
@@ -30,10 +31,33 @@ const shortcutLabels: Record<ShortcutAction, string> = {
 };
 
 export default function SettingsPanel({ settings, onChange, onClose, onDragStart, onShortcutRecordingChange, notices }: SettingsPanelProps) {
+  const [previewTone, setPreviewTone] = useState<"tick" | "work" | "break" | null>(null);
+  const [previewMessage, setPreviewMessage] = useState("");
+  const previewRequest = useRef(0);
   const [recordingShortcut, setRecordingShortcut] = useState<ShortcutAction | null>(null);
   const [shortcutMessage, setShortcutMessage] = useState<{ action: ShortcutAction; text: string } | null>(null);
 
   useEffect(() => () => onShortcutRecordingChange(false), [onShortcutRecordingChange]);
+  useEffect(() => {
+    setPreviewTone(null);
+    setPreviewMessage("");
+    return () => {
+      previewRequest.current++;
+      stopTimerSounds("preview");
+    };
+  }, [settings.sound, settings.countdownSound, settings.transitionSound, settings.volume]);
+
+  const previewSound = async (tone: "tick" | "work" | "break") => {
+    const request = ++previewRequest.current;
+    setPreviewTone(tone);
+    setPreviewMessage("Starting sound…");
+    const result = await previewTimerSound(settings.volume, tone, () => {
+      if (request === previewRequest.current) setPreviewMessage(tone === "tick" ? "Playing three soft clock taps…" : "Playing gentle chime…");
+    });
+    if (request !== previewRequest.current) return;
+    setPreviewTone(null);
+    setPreviewMessage(result.status === "error" ? result.message : result.status === "ended" ? "" : "Preview stopped.");
+  };
 
   const startShortcutRecording = (action: ShortcutAction) => {
     setRecordingShortcut(action);
@@ -137,10 +161,23 @@ export default function SettingsPanel({ settings, onChange, onClose, onDragStart
           <Toggle label="Motivational messages" hint="Short encouragement in completion and goal notifications" checked={settings.motivationalMessages} onChange={(motivationalMessages) => onChange({ motivationalMessages })} />
           <Toggle label="Reminder notifications" hint="Also send the five-minute warning to your desktop; requires desktop notifications and the warning below" checked={settings.reminderNotifications} onChange={(reminderNotifications) => onChange({ reminderNotifications })} />
           <Toggle label="Five-minute warning" hint="Subtle indication on the focus timer" checked={settings.fiveMinuteWarning} onChange={(fiveMinuteWarning) => onChange({ fiveMinuteWarning })} />
-          <Toggle label="Completion sound" checked={settings.sound} onChange={(sound) => onChange({ sound })} />
+        </SettingsGroup>
+
+        <SettingsGroup title="Timer sounds">
+          <Toggle label="Timer sounds" hint="Audio alerts for focus and break timers" checked={settings.sound} onChange={(sound) => onChange({ sound })} />
+          <Toggle label="10-second countdown" hint="Warm clock taps before focus and breaks finish" checked={settings.countdownSound} disabled={!settings.sound} onChange={(countdownSound) => onChange({ countdownSound })} />
+          <Toggle label="Start/end chimes" hint="Gentle rising chime for breaks; falling chime to return to focus" checked={settings.transitionSound} disabled={!settings.sound} onChange={(transitionSound) => onChange({ transitionSound })} />
           <SettingRow label="Volume" value={`${settings.volume}%`} stacked>
-            <input className="range" type="range" min="0" max="100" value={settings.volume} disabled={!settings.sound} onChange={(event) => onChange({ volume: Number(event.target.value) })} />
+            <input aria-label="Timer sound volume" className="range" type="range" min="0" max="100" value={settings.volume} disabled={!settings.sound} onChange={(event) => onChange({ volume: Number(event.target.value) })} />
           </SettingRow>
+          <SettingRow label="Preview sounds" stacked>
+            <div className="segmented sound-previews">
+              <button type="button" aria-pressed={previewTone === "tick"} disabled={!settings.sound || !settings.countdownSound || settings.volume === 0} onClick={() => { void previewSound("tick"); }}>{previewTone === "tick" ? "Playing…" : "▶ Tick"}</button>
+              <button type="button" aria-pressed={previewTone === "work"} disabled={!settings.sound || !settings.transitionSound || settings.volume === 0} onClick={() => { void previewSound("work"); }}>{previewTone === "work" ? "Playing…" : "▶ Break alert"}</button>
+              <button type="button" aria-pressed={previewTone === "break"} disabled={!settings.sound || !settings.transitionSound || settings.volume === 0} onClick={() => { void previewSound("break"); }}>{previewTone === "break" ? "Playing…" : "▶ Focus alert"}</button>
+            </div>
+          </SettingRow>
+          <p className="sound-preview-status" role="status">{!settings.sound ? "Turn on Timer sounds to enable previews." : settings.volume === 0 ? "Increase the volume to hear previews." : !settings.countdownSound && !settings.transitionSound ? "Enable countdown ticks or chimes to preview them." : previewMessage || "Preview a sound at the selected volume."}</p>
         </SettingsGroup>
 
         <SettingsGroup title="Focus policy">
@@ -200,8 +237,8 @@ function Segmented<T extends string>({ values, value, onChange }: { values: T[];
   return <div className="segmented">{values.map((item) => <button type="button" key={item} className={value === item ? "is-active" : ""} aria-pressed={value === item} onClick={() => onChange(item)}>{item}</button>)}</div>;
 }
 
-function Toggle({ label, hint, checked, onChange }: { label: string; hint?: string; checked: boolean; onChange: (value: boolean) => void }) {
-  return <label className="toggle-row"><span><b>{label}</b>{hint && <small>{hint}</small>}</span><input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} /><i /></label>;
+function Toggle({ label, hint, checked, disabled, onChange }: { label: string; hint?: string; checked: boolean; disabled?: boolean; onChange: (value: boolean) => void }) {
+  return <label className="toggle-row"><span><b>{label}</b>{hint && <small>{hint}</small>}</span><input type="checkbox" disabled={disabled} checked={checked} onChange={(event) => onChange(event.target.checked)} /><i /></label>;
 }
 
 function Shortcut({ label, value, recording, message, onStart, onCancel, onSave, onClear, onMessage }: {

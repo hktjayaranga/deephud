@@ -38,6 +38,8 @@ export interface Settings {
   reminderNotifications: boolean;
   fiveMinuteWarning: boolean;
   sound: boolean;
+  countdownSound: boolean;
+  transitionSound: boolean;
   volume: number;
   trackPausedTime: boolean;
   autoPauseIdle: boolean;
@@ -73,6 +75,8 @@ export const defaultSettings: Settings = {
   reminderNotifications: false,
   fiveMinuteWarning: true,
   sound: true,
+  countdownSound: true,
+  transitionSound: true,
   volume: 55,
   trackPausedTime: true,
   autoPauseIdle: false,
@@ -145,6 +149,8 @@ export function validateSettings(value: unknown): Settings {
     reminderNotifications: value.reminderNotifications === undefined ? defaultSettings.reminderNotifications : booleanSetting(value.reminderNotifications, "reminderNotifications"),
     fiveMinuteWarning: booleanSetting(value.fiveMinuteWarning, "fiveMinuteWarning"),
     sound: booleanSetting(value.sound, "sound"),
+    countdownSound: value.countdownSound === undefined ? defaultSettings.countdownSound : booleanSetting(value.countdownSound, "countdownSound"),
+    transitionSound: value.transitionSound === undefined ? defaultSettings.transitionSound : booleanSetting(value.transitionSound, "transitionSound"),
     volume: boundedInteger(value.volume, 0, 100, "volume"),
     trackPausedTime: booleanSetting(value.trackPausedTime, "trackPausedTime"),
     autoPauseIdle: booleanSetting(value.autoPauseIdle, "autoPauseIdle"),
