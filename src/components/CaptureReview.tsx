@@ -40,7 +40,7 @@ export default function CaptureReview({ captures, projects, defaultMinutes, read
     </div>
   </article>;
   return <section className="capture-review" aria-labelledby="saved-thoughts-title">
-    <div className="section-title"><h2 id="saved-thoughts-title">Saved for later</h2></div>
+    <div className="section-title"><h2 id="saved-thoughts-title">Your saved thoughts</h2></div>
     <p className="queue-hint">Review whenever you’re ready. Your timer keeps its current rhythm.</p>
       {!ready && <p role="status" className="queue-hint">Saved thoughts are not loaded yet. Use Reload history if storage needs attention.</p>}
       {error && <p className="inline-error" role="alert">{error}</p>}{notice && <p className="queue-notice" role="status">{notice}</p>}

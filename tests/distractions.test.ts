@@ -9,7 +9,8 @@ import { validateBackup } from "../src/services/dataTransfer";
 import { RECOVERY_KEY, SessionSnapshot, loadSessionSnapshot, saveSessionSnapshot } from "../src/services/sessionRecovery";
 import DistractionCaptureInput from "../src/components/DistractionCapture";
 import CaptureReview from "../src/components/CaptureReview";
-import Dashboard, { DashboardTab } from "../src/components/Dashboard";
+import Dashboard from "../src/components/Dashboard";
+import SavedThoughtsWorkspace from "../src/components/SavedThoughtsWorkspace";
 import { QueueEditor } from "../src/components/TodayQueue";
 
 const thought = (patch: Partial<DistractionCapture> = {}): DistractionCapture => ({ id: "thought-a", text: "Reply to the university email", createdAt: "2026-09-12T09:00:00Z", workSessionId: "focus-a", queueItemId: "task-a", handledAt: null, convertedQueueItemId: null, ...patch });
@@ -144,25 +145,30 @@ describe("capture and review UI", () => {
 });
 
 
-describe("dashboard saved thoughts tab", () => {
-  const renderDashboard = (tab: DashboardTab, count: number) => renderToStaticMarkup(createElement(Dashboard, {
-    tab, onTabChange: vi.fn(), pendingThoughtCount: count,
-    savedThoughts: createElement(CaptureReview, { captures: [thought()], projects: [], defaultMinutes: 25, ready: true, onUpdate: vi.fn(), onDelete: vi.fn(), onConvert: vi.fn() }),
-    sessions: [], goalMinutes: 240, onDelete: vi.fn(), onUpdate: vi.fn(), onExport: vi.fn(), onBackup: vi.fn(), onRestore: vi.fn(), onResetDatabase: vi.fn(), onToday: vi.fn(), onClose: vi.fn(), onDragStart: vi.fn(),
-  }));
-  it("shows the unhandled badge without opening review on Overview", () => {
-    const html = renderDashboard("overview", 3);
-    expect(html).toContain('aria-label="3 unhandled thoughts">3</span>');
-    expect(html).toContain("Saved for later");
+describe("saved thoughts workspace", () => {
+  it("keeps Productivity focused on progress and history", () => {
+    const html = renderToStaticMarkup(createElement(Dashboard, {
+      tab: "overview", onTabChange: vi.fn(),
+      sessions: [], goalMinutes: 240, onDelete: vi.fn(), onUpdate: vi.fn(), onExport: vi.fn(), onBackup: vi.fn(), onRestore: vi.fn(), onResetDatabase: vi.fn(), onToday: vi.fn(), onClose: vi.fn(), onDragStart: vi.fn(),
+    }));
+    expect(html).not.toContain("Saved for later");
     expect(html).not.toContain("Mark handled</button>");
+    expect(html).toContain("Productivity</h1>");
   });
-  it("renders the existing review inside Dashboard without an extra workspace header", () => {
-    const html = renderDashboard("saved", 1);
-    expect(html).toContain('class="is-active" aria-current="page">Saved for later');
+  it("offers the existing review actions with Today and Back to timer navigation", () => {
+    const html = renderToStaticMarkup(createElement(SavedThoughtsWorkspace, {
+      captures: [thought(), thought({ id: "handled", handledAt: "2026-09-12T10:00:00Z" })], projects: [], defaultMinutes: 25, ready: true,
+      onUpdate: vi.fn(), onDelete: vi.fn(), onConvert: vi.fn(), onToday: vi.fn(), onClose: vi.fn(), onDragStart: vi.fn(),
+      notices: createElement("p", { role: "alert" }, "Storage needs attention"),
+    }));
+    expect(html).toContain("Saved for later</h1>");
+    expect(html).toContain("To review · 1");
+    expect(html).toContain("Today</button>");
+    expect(html).toContain('aria-label="Back to timer"');
+    expect(html).toContain("Storage needs attention");
     expect(html).toContain("Mark handled</button>");
     expect(html).toContain("Add to Today</button>");
     expect(html).toContain("Keep for later</button>");
     expect(html.match(/class="workspace__header"/g)).toHaveLength(1);
-    expect(html).not.toContain("Today&#x27;s goal");
   });
 });

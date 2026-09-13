@@ -137,7 +137,7 @@ in the full HUD during a session.
   when automatic work-start is enabled. Automatic break-start still applies.
 - Unfinished tasks stay under **Unfinished from earlier** after midnight. Move
   them to today to keep their progress. Removing a task keeps its focus history.
-- Queue items and their history links are stored locally and included in v3
+- Queue items and their history links are stored locally and included in v4
   JSON backups (v2 queue backups remain readable). Existing v1 backups remain readable; restoring one replaces the
   queue with an empty queue. Database reset also clears the queue.
 
@@ -156,10 +156,12 @@ is deferred while capturing and for the configured idle threshold after your
 last capture interaction. A failed save keeps the draft and allows retry.
 
 During a break, the header offers a subtle **saved · Review** button when thoughts
-are pending. It opens **Dashboard → Saved for later**, also available anytime
-from the dashboard tabs. The tab badge counts unhandled thoughts. Review is
-optional and does not overlay the breathing activity or start work. Capture and
-review do not add icons to the control panel.
+are pending. It opens the standalone **Saved for later** screen, also available
+from **More controls → Saved for later** and Today’s **Saved thoughts** shortcut.
+The subtle counts show unhandled thoughts. The screen matches Today and Schedule
+with **Today** and **Back to timer** navigation. Review is optional and does not
+overlay the breathing activity or start work. Saving a quick capture keeps you
+on the timer without opening review.
 
 - **Mark handled** moves a thought into Handled; Reopen returns it to review.
 - **Keep for later** sets it aside until you reopen the list.
@@ -169,7 +171,7 @@ review do not add icons to the control panel.
   from the same thought, even if the original task was later removed.
 - **Delete** removes only the thought; any task created from it is kept.
 
-Saved thoughts persist in local SQLite storage and v3 JSON backups. v1/v2 backups
+Saved thoughts persist in local SQLite storage and v4 JSON backups. v1/v2 backups
 remain readable and restore an empty saved-thought list. Database reset also
 clears saved thoughts.
 
@@ -259,3 +261,35 @@ social/team features, website surveillance, and AI coaching. The application is
 designed to help you focus—not become another service to manage.
 
 Licensed under the [MIT License](LICENSE).
+
+
+### Recurring focus schedules
+
+Open **More controls → calendar button → Add schedule** to choose an activity, optional project,
+weekdays, local time, and a Deep Work or Focus intervals plan. Interval schedules
+save their work, short break, long break, and cycle settings. Each card can be
+edited, enabled/disabled, or deleted. Schedule has its own screen with the same
+layout and Back to timer navigation as Today. It stays accessible during active
+sessions. Today also shows the next scheduled session and a Schedule shortcut.
+
+DeepHUD must remain running (including in its tray) for reminders. The Rust
+scheduler checks local wall time every ten seconds, independently of the HUD.
+A notification opens the reminder in DeepHUD; **Start** uses the saved plan and
+**Dismiss** skips just this occurrence. An active or paused session is never
+replaced: use **Remind after session** to be notified once it ends. Pending
+reminders can also be handled on the Schedule screen. Breathing activities retain
+an optional review link instead of an automatic overlay.
+
+Recent missed reminders are offered for up to 15 minutes; older ones expire.
+Deferred reminders are kept for up to 24 hours. Repeated daylight-saving times
+fire only at their first occurrence; nonexistent local times are skipped that
+day. Occurrence keys prevent duplicate reminders after restarts or clock changes.
+Editing a schedule clears its pending reminders and applies to future occurrences.
+Operating-system notification permissions and Do Not Disturb can suppress system
+alerts; pending reminders remain available inside DeepHUD.
+
+Schedules and occurrence states are stored in SQLite and included in v4 backups.
+Versions 1–3 remain readable and restore an empty schedule list. Database reset
+also deletes schedules and reminder history. Browser development uses local
+storage and browser notifications while its page is open; native background
+scheduling is available in the desktop build.

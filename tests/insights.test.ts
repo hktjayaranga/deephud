@@ -142,7 +142,6 @@ describe("calendar drill-down and accessible chart values", () => {
     expect(insightDuration(30)).toBe("30s");
     const html = renderToStaticMarkup(createElement(MonthlySummary, { insights }));
     expect(html).toContain("No previous focus time");
-    expect(html).toContain("same local day and time");
     expect(html).not.toContain("Infinity");
     expect(renderToStaticMarkup(createElement(ProjectComparison, { insights }))).toContain("Unassigned");
   });

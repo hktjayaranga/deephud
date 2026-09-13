@@ -78,10 +78,14 @@ Before release, verify on each supported desktop platform:
 4. Simulate storage failure. Keep the typed text, show the error, and retry once
    storage is available. Capture several thoughts and restart to check persistence.
 5. During normal breaks and breathing, check the small header review action.
-   Review must open Dashboard → Saved for later with the unhandled count badge.
-   Confirm that opening that tab manually reaches the same review actions, and
-   that the control panel has no capture/review icons. Return to the timer without
-   losing breathing progress.
+   Review must open the standalone Saved for later screen. Verify More controls →
+   Saved for later and Today’s Saved thoughts shortcut reach the same screen.
+   Counts must include only unhandled thoughts and update after handling,
+   reopening, deleting, or converting a thought. Confirm Productivity has no
+   Saved for later tab. Return to the timer without losing breathing progress.
+   Check the same window size as Today/Schedule, light/dark themes, empty/loading
+   states, and Back to timer while a session is running or paused. Saving a quick
+   capture must keep the timer visible without opening review.
 6. Mark handled, reopen, keep for later, delete, and convert a thought using the
    task form. Verify the task's project/estimate, no automatic timer start, and
    no duplicate conversion after retry/restart. Delete a thought without deleting
@@ -113,3 +117,43 @@ Before release, verify Dashboard → Overview:
    dashboard layouts. Charts should scroll or wrap without resizing the HUD.
 6. Leave Overview open across local midnight/month rollover; This month should
    follow the new month while a deliberately selected historical month stays fixed.
+
+
+## Recurring focus schedules
+
+Automated tests cover local weekdays, midnight/month boundaries, 15-minute missed
+reminder catch-up, DST gaps/repeated hours, timezone changes, occurrence deduplication,
+SQLite round trips, failed restores, deferral, duplicate action rejection, and v1–v4
+backup compatibility. Run `npm test` and `cargo test --manifest-path src-tauri/Cargo.toml --lib`.
+
+Native manual checks (Linux, Windows and macOS):
+
+1. Add a schedule for the next minute, with a project and custom interval settings.
+   Hide the HUD. Verify a system notification arrives without the HUD opening.
+2. Click the notification. Verify the standalone Schedule screen opens with the
+   reminder, click-through permits interaction, and Dismiss leaves Schedule open.
+   Back to timer restores the HUD size and click-through behavior. Check light/dark
+   themes and long activity names. Open Schedule from the calendar button during
+   both running and paused sessions; verify the timer continues unchanged.
+   Check Today’s upcoming-session preview and Schedule shortcut, and confirm
+   Productivity no longer contains a Schedule tab.
+3. Select Start and verify the task, project, work duration, short/long breaks and
+   cycle count match the schedule. Reminder display/dismissal must not change the
+   elapsed time or pause an already active/paused session.
+4. While focusing, choose Remind after session. Finish/end the complete session
+   (not just a focus interval), and verify one new notification. Check multiple
+   simultaneous reminders are offered one at a time.
+5. During breathing, verify the small scheduled-review link opens the standalone Schedule screen
+   and no reminder automatically covers the breathing animation. Check capture
+   drafts and completion/recovery dialogs remain usable when a reminder arrives.
+6. Restart, suspend/resume, and move the clock backwards/forwards. Verify recent
+   reminders appear once, reminders older than 15 minutes expire, and deferred
+   reminders older than 24 hours expire. Change the system timezone and confirm
+   the next reminder uses the new local time.
+7. Edit, disable and delete pending schedules; verify old notifications cannot
+   resurrect them. Deny/block notifications and verify the in-app reminder is usable.
+8. Back up/restore schedules and handled occurrences. Restore a v1/v2/v3 backup;
+   verify schedules become empty. Reset the database and verify all reminders stop.
+
+Native notification clicks and actual window rendering require a desktop session;
+SSR/unit tests do not verify those OS interactions.

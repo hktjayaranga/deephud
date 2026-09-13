@@ -39,7 +39,7 @@ pub struct ProjectRecord {
     tasks: Vec<TaskRecord>,
 }
 
-async fn sqlite_pool(instances: &State<'_, DbInstances>) -> Result<SqlitePool, String> {
+pub(crate) async fn sqlite_pool(instances: &State<'_, DbInstances>) -> Result<SqlitePool, String> {
     let databases = instances.0.read().await;
     match databases.get(DB_URL) {
         Some(DbPool::Sqlite(pool)) => Ok(pool.clone()),
@@ -255,6 +255,8 @@ pub async fn delete_session(instances: State<'_, DbInstances>, id: i64) -> Resul
 pub async fn reset_database(instances: State<'_, DbInstances>) -> Result<(), String> {
     let pool = sqlite_pool(&instances).await?;
     let mut transaction = pool.begin().await.map_err(|error| error.to_string())?;
+    crate::schedules::write_data(&mut transaction, &crate::schedules::ScheduleData::default())
+        .await?;
     sqlx::query("DELETE FROM distraction_captures")
         .execute(&mut *transaction)
         .await
@@ -287,7 +289,11 @@ pub async fn replace_sessions(
     sessions: Vec<SessionRecord>,
     queue_items: Option<Vec<DailyQueueItem>>,
     captures: Option<Vec<DistractionCapture>>,
+    focus_schedules: Option<crate::schedules::ScheduleData>,
 ) -> Result<(), String> {
+    if let Some(data) = &focus_schedules {
+        crate::schedules::validate_data(data)?;
+    }
     if sessions.len() > MAX_SESSIONS_PER_RESTORE {
         return Err("Backup contains too many sessions".into());
     }
@@ -315,6 +321,9 @@ pub async fn replace_sessions(
         write_captures(&mut transaction, items)
             .await
             .map_err(|error| error.to_string())?;
+    }
+    if let Some(data) = &focus_schedules {
+        crate::schedules::write_data(&mut transaction, data).await?;
     }
     for session in &sessions {
         insert_session(&mut transaction, session)

@@ -11,8 +11,6 @@ import HistoryConfirmation from "./HistoryConfirmation";
 interface Props {
   tab: DashboardTab;
   onTabChange: (tab: DashboardTab) => void;
-  savedThoughts: React.ReactNode;
-  pendingThoughtCount: number;
   sessions: SessionRecord[];
   goalMinutes: number;
   onDelete: (id: number) => Promise<void>;
@@ -27,9 +25,9 @@ interface Props {
   notices?: React.ReactNode;
 }
 
-export type DashboardTab = "overview" | "history" | "projects" | "saved";
+export type DashboardTab = "overview" | "history" | "projects";
 
-export default function Dashboard({ tab, onTabChange, savedThoughts, pendingThoughtCount, sessions, goalMinutes, onDelete, onUpdate, onExport, onBackup, onRestore, onResetDatabase, onToday, onClose, onDragStart, notices }: Props) {
+export default function Dashboard({ tab, onTabChange, sessions, goalMinutes, onDelete, onUpdate, onExport, onBackup, onRestore, onResetDatabase, onToday, onClose, onDragStart, notices }: Props) {
   const [period, setPeriod] = useState<"week" | "month">("week");
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
   const [now, setNow] = useState(() => new Date());
@@ -64,10 +62,9 @@ export default function Dashboard({ tab, onTabChange, savedThoughts, pendingThou
       <div className="streak">🔥 {stats.streak} day streak</div>
       <button className="icon-button" onClick={onClose} title="Back to timer" aria-label="Back to timer">←</button>
     </header>
-    <nav className="dashboard-tabs" aria-label="Dashboard sections">{(["overview", "history", "projects", "saved"] as DashboardTab[]).map((item) => <button type="button" key={item} className={tab === item ? "is-active" : ""} aria-current={tab === item ? "page" : undefined} onClick={() => onTabChange(item)}>{item === "saved" ? <>Saved for later <span className="dashboard-tab-badge" aria-label={`${pendingThoughtCount} unhandled thoughts`}>{pendingThoughtCount}</span></> : item}</button>)}</nav>
+    <nav className="dashboard-tabs" aria-label="Dashboard sections">{(["overview", "history", "projects"] as DashboardTab[]).map((item) => <button type="button" key={item} className={tab === item ? "is-active" : ""} aria-current={tab === item ? "page" : undefined} onClick={() => onTabChange(item)}>{item}</button>)}</nav>
     <div className="workspace__content dashboard__content">
       {notices}
-      {tab === "saved" && savedThoughts}
       {tab === "overview" && <>
         <section className="goal-card">
           <div><span>Today's goal</span><b>{formatDuration(stats.todaySeconds)} <small>/ {formatDuration(goalMinutes * 60)}</small></b></div>

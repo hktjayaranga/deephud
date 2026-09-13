@@ -17,9 +17,12 @@ interface Props {
   onClose: () => void;
   onDragStart: () => void;
   notices?: React.ReactNode;
+  schedule?: React.ReactNode;
+  onSavedThoughts: () => void;
+  pendingThoughtCount?: number;
 }
 
-export default function TodayQueue({ items, sessions, projects, today, activeId, canStart, ready, defaultMinutes, onChange, onStart, onClose, onDragStart, notices }: Props) {
+export default function TodayQueue({ items, sessions, projects, today, activeId, canStart, ready, defaultMinutes, onChange, onStart, onClose, onDragStart, notices, schedule, onSavedThoughts, pendingThoughtCount }: Props) {
   const [editing, setEditing] = useState<DailyQueueItem | null>(null);
   const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -69,6 +72,8 @@ export default function TodayQueue({ items, sessions, projects, today, activeId,
     </header>
     <div className="workspace__content">
       {notices}
+      {schedule}
+      <div className="today-saved-shortcut"><button type="button" className="workspace-nav-button" onClick={onSavedThoughts}>Saved thoughts{pendingThoughtCount !== undefined && ` · ${pendingThoughtCount}`}</button></div>
       <div className="section-title"><h2>Your task queue</h2><button type="button" className="queue-add" disabled={busy || !ready || items.length >= MAX_QUEUE_ITEMS} onClick={() => { setAdding(true); setEditing(null); }}>+ Add task</button></div>
       <p className="queue-hint">One session is one completed focus block. Mark tasks done when the work is finished.</p>
       {!canStart && <p className="queue-hint" role="status">A session is open. Return to the timer to finish or end &amp; save it before starting another task.</p>}

@@ -1,6 +1,6 @@
 .break-activity-shell.size-large .hud__body { padding: 12px 18px; gap: 10px; min-height: 0; overflow: hidden; }
 .break-activity-shell.size-large .controls { flex: 0 0 36px; margin-top: 0; }
-.break-activity-shell .hud__minimize { display: none; }
+.break-activity-shell .hud__minimize, .break-activity-shell .hud__close { display: none; }
 .break-activities { width: 100%; min-height: 0; flex: 1 1 0; overflow-y: auto; padding: 3px; text-align: center; }
 .break-activities__remaining { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 .break-activities h2 { margin: 12px 0 8px; font-size: 18px; line-height: 1.3; }

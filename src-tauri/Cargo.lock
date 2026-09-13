@@ -813,6 +813,7 @@ dependencies = [
  "chrono",
  "gtk",
  "libc",
+ "notify-rust",
  "serde",
  "serde_json",
  "sqlx",

@@ -1,3 +1,4 @@
+import { ScheduleData, validateScheduleData } from "./schedules";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { readTextFile, stat, writeTextFile } from "@tauri-apps/plugin-fs";
 import { SessionRecord, validateSessionGrouping } from "./database";
@@ -13,7 +14,8 @@ const EARLIEST_SESSION = Date.parse("2000-01-01T00:00:00.000Z");
 
 export interface DeepHUDBackup {
   application: "DeepHUD";
-  schemaVersion: 1 | 2 | 3;
+  schemaVersion: 1 | 2 | 3 | 4;
+  focusSchedules?: ScheduleData;
   captures?: DistractionCapture[];
   queueItems?: DailyQueueItem[];
   exportedAt: string;
@@ -29,8 +31,8 @@ export async function exportSessions(format: "csv" | "json", sessions: SessionRe
   await saveContent(`deephud-sessions-${dateStamp()}.${format}`, format, content);
 }
 
-export async function createBackup(settings: Settings, sessions: SessionRecord[], queueItems: DailyQueueItem[] = [], captures: DistractionCapture[] = []) {
-  const backup: DeepHUDBackup = { application: "DeepHUD", schemaVersion: 3, captures: validateCaptures(captures), queueItems: validateQueue(queueItems), exportedAt: new Date().toISOString(), settings, sessions };
+export async function createBackup(settings: Settings, sessions: SessionRecord[], queueItems: DailyQueueItem[] = [], captures: DistractionCapture[] = [], focusSchedules: ScheduleData = { schedules: [], occurrences: [] }) {
+  const backup: DeepHUDBackup = { application: "DeepHUD", schemaVersion: 4, focusSchedules: validateScheduleData(focusSchedules), captures: validateCaptures(captures), queueItems: validateQueue(queueItems), exportedAt: new Date().toISOString(), settings, sessions };
   await saveContent(`deephud-backup-${dateStamp()}.json`, "json", JSON.stringify(backup, null, 2));
 }
 
@@ -44,13 +46,14 @@ export async function selectBackup(): Promise<DeepHUDBackup | null> {
 }
 
 export function validateBackup(value: unknown, now = Date.now()): DeepHUDBackup {
-  if (!isRecord(value) || (value.application !== "DeepHUD" && value.application !== "DeepWork HUD") || (value.schemaVersion !== 1 && value.schemaVersion !== 2 && value.schemaVersion !== 3) || !Array.isArray(value.sessions)) throw new Error("This is not a valid DeepHUD backup");
+  if (!isRecord(value) || (value.application !== "DeepHUD" && value.application !== "DeepWork HUD") || (value.schemaVersion !== 1 && value.schemaVersion !== 2 && value.schemaVersion !== 3 && value.schemaVersion !== 4) || !Array.isArray(value.sessions)) throw new Error("This is not a valid DeepHUD backup");
   if (value.sessions.length > MAX_BACKUP_SESSIONS) throw new Error(`Backup exceeds the ${MAX_BACKUP_SESSIONS.toLocaleString()} session limit`);
   const exportedAt = validDate(value.exportedAt, "export date", now);
   return {
     application: "DeepHUD",
-    schemaVersion: value.schemaVersion as 1 | 2 | 3,
-    captures: value.schemaVersion === 3 ? validateCaptures(value.captures) : [],
+    schemaVersion: value.schemaVersion as 1 | 2 | 3 | 4,
+    focusSchedules: value.schemaVersion === 4 ? validateScheduleData(value.focusSchedules) : { schedules: [], occurrences: [] },
+    captures: (value.schemaVersion === 3 || value.schemaVersion === 4) ? validateCaptures(value.captures) : [],
     queueItems: value.schemaVersion !== 1 ? validateQueue(value.queueItems) : [],
     exportedAt,
     settings: validateSettings(value.settings),

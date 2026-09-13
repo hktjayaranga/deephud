@@ -44,7 +44,7 @@ export default function HistoryConfirmation({ reset, onConfirm, onCancel }: Prop
     <span aria-hidden="true">!</span>
     <h2 id="history-confirmation-title">{reset ? "Delete all history?" : "Delete this history entry?"}</h2>
     <p id="history-confirmation-description">{reset
-      ? "This permanently deletes all focus sessions, task queue items, saved thoughts, and saved project/task suggestions. Your settings and audio recordings will be kept. This cannot be undone."
+      ? "This permanently deletes all focus sessions, task queue items, saved thoughts, focus schedules and reminders, and saved project/task suggestions. Your settings and audio recordings will be kept. This cannot be undone."
       : "This permanently deletes the selected focus interval from your history. Other intervals will be kept. This cannot be undone."}</p>
     {error && <p role="alert" className="inline-error">{error}</p>}
     <div>

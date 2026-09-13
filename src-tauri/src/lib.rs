@@ -7,6 +7,7 @@ use tauri_plugin_sql::{Migration, MigrationKind};
 
 mod database;
 mod platform;
+mod schedules;
 
 // Never change this string: its checksum was shipped in v0.3.0 databases.
 const MIGRATION_1_SQL: &str = concat!(
@@ -49,6 +50,11 @@ fn allow_compact_linux_window(window: &tauri::WebviewWindow) -> tauri::Result<()
 #[tauri::command]
 fn system_idle_seconds() -> Result<u64, String> {
     platform::system_idle_seconds()
+}
+
+#[tauri::command]
+fn quit_app(app: tauri::AppHandle) {
+    app.exit(0);
 }
 
 /// Uses each operating system's monotonic clock that includes suspended time,
@@ -148,6 +154,7 @@ fn database_migrations() -> Vec<Migration> {
             ); CREATE INDEX idx_captures_created ON distraction_captures(created_at);",
             kind: MigrationKind::Up,
         },
+        Migration { version: 6, description: "recurring_focus_schedules", sql: schedules::MIGRATION, kind: MigrationKind::Up },
     ]
 }
 
@@ -157,6 +164,7 @@ pub fn run() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             system_idle_seconds,
+            quit_app,
             monotonic_millis,
             hud_current_monitor,
             database::initialize_database,
@@ -173,7 +181,12 @@ pub fn run() {
             database::get_captures,
             database::save_capture,
             database::delete_capture,
-            database::convert_capture
+            database::convert_capture,
+            schedules::get_schedule_data,
+            schedules::save_focus_schedule,
+            schedules::delete_focus_schedule,
+            schedules::respond_to_reminder,
+            schedules::release_deferred_reminders
         ])
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_notification::init())
@@ -239,6 +252,7 @@ pub fn run() {
                 tray = tray.icon(icon.clone());
             }
             tray.build(app)?;
+            schedules::start(app.handle().clone());
             Ok(())
         })
         .run(tauri::generate_context!())

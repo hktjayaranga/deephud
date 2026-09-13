@@ -15,7 +15,6 @@ export default function FocusCalendar({ insights, onSelectDay }: { insights: Mon
         })}
       </div>
       <div className="heatmap-legend"><span>Less focus</span>{[0, 1, 2, 3, 4].map((level) => <i className={`heat-${level}`} key={level} aria-hidden="true" />)}<span>More focus</span></div>
-      <p className="insight-note">Intensity is relative to this month’s busiest day. All focused time is assigned to the saved interval’s local start date.</p>
     </div>
   </section>;
 }

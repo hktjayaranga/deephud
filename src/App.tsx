@@ -1,3 +1,8 @@
+import ScheduleWorkspace from "./components/schedules/ScheduleWorkspace";
+import SchedulePreview from "./components/schedules/SchedulePreview";
+import ScheduleReminder from "./components/schedules/ScheduleReminder";
+import { useSchedules } from "./services/useSchedules";
+import { getScheduleData, releaseDeferredReminders, pendingReminders, respondToReminder, schedulePlan } from "./services/schedules";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -13,7 +18,7 @@ import BreakActivities from "./components/BreakActivities";
 import { BreakActivityChoice, breakActivityState } from "./services/breakActivities";
 import Controls, { Icon } from "./components/Controls";
 import DistractionCaptureInput from "./components/DistractionCapture";
-import CaptureReview from "./components/CaptureReview";
+import SavedThoughtsWorkspace from "./components/SavedThoughtsWorkspace";
 import { DistractionCapture, getCaptures, saveCapture, deleteCapture, convertCapture, pendingCaptures, deferIdleForCapture } from "./services/distractions";
 import TodayQueue from "./components/TodayQueue";
 import QueueCompletion from "./components/QueueCompletion";
@@ -40,7 +45,7 @@ import SessionRecovery from "./components/SessionRecovery";
 import ErrorNotice from "./components/ErrorNotice";
 import { SessionSnapshot, clearSessionSnapshot, loadSessionSnapshot, reconcileSessionSnapshot, resumeSessionSnapshot, saveSessionSnapshot, savedRecoveryCycle } from "./services/sessionRecovery";
 
-type View = "today" | "hud" | "launcher" | "dashboard" | "settings";
+type View = "saved" | "schedule" | "today" | "hud" | "launcher" | "dashboard" | "settings";
 type Completion = { phase: "save-error" | SessionPhase; title: string; body: string };
 
 const isTauri = () => "__TAURI_INTERNALS__" in window;
@@ -88,6 +93,23 @@ export default function App() {
   const captureActivityRef = useRef(-Infinity);
   const captureOpen = captureDraft !== null && view === "hud";
   const thoughtCount = pendingCaptures(captures).length;
+  const scheduleStartingRef = useRef(false);
+  const [reminderBusy, setReminderBusy] = useState(false);
+  const [reminderError, setReminderError] = useState("");
+  const scheduleStore = useSchedules(() => {
+    setHudPopover(null); setView("schedule");
+  });
+  const scheduleSessionActive = Boolean(activePlan) || state.status === "running" || state.status === "paused";
+  const reminders = pendingReminders(scheduleStore.data, scheduleSessionActive);
+  const reminder = reminders[0];
+  const deferredReleaseRef = useRef(false);
+  useEffect(() => {
+    if (scheduleSessionActive || recovery || !recoveryChecked || !scheduleStore.ready || deferredReleaseRef.current || !scheduleStore.data.occurrences.some(o => o.status === "deferred")) return;
+    deferredReleaseRef.current = true;
+    void releaseDeferredReminders().then(() => scheduleStore.refresh()).catch(e => setReminderError(String(e))).finally(() => { deferredReleaseRef.current = false; });
+  }, [scheduleSessionActive, recovery, recoveryChecked, scheduleStore.ready, scheduleStore.data, scheduleStore.refresh]);
+
+
   const [queueItems, setQueueItems] = useState<DailyQueueItem[]>([]);
   const [queueReady, setQueueReady] = useState(false);
   const queueWriteRef = useRef(false);
@@ -112,6 +134,7 @@ export default function App() {
   const breakActivity = breakActivityState(activePlan, state, breakChoice);
   const showBreakActivities = breakActivity.visible && !completion && !recovery;
   const breakActivitiesOnScreen = showBreakActivities && view === "hud";
+  const reminderOpen = Boolean(reminder) && !captureOpen && !completion && !recovery && recoveryChecked && !showBreakActivities && view === "hud";
   const [customPresetOpen, setCustomPresetOpen] = useState(false);
   const [customMinutes, setCustomMinutes] = useState(settings.defaultDuration);
   const [shortcutError, setShortcutError] = useState("");
@@ -246,6 +269,16 @@ export default function App() {
     window.addEventListener("beforeunload", checkpoint);
     return () => { window.removeEventListener("pagehide", checkpoint); window.removeEventListener("beforeunload", checkpoint); };
   }, []);
+
+  const quitApp = async () => {
+    if (!appWindow) return;
+    try {
+      if (snapshotRef.current) saveSessionSnapshot(snapshotRef.current);
+      await invoke("quit_app");
+    } catch (error) {
+      setDatabaseError(`Unable to close DeepHUD: ${String(error)}`);
+    }
+  };
 
   const recoverSession = async (includeTimeAway: boolean) => {
     if (!recovery || recoveryBusy) return;
@@ -522,7 +555,7 @@ export default function App() {
   }, [hudPopover]);
 
   const handleStartPause = useCallback(() => {
-    if (recovery || !recoveryChecked || queueTransitionRef.current) return;
+    if (recovery || !recoveryChecked || queueTransitionRef.current || scheduleStartingRef.current) return;
     // Finished intervals must be saved and resolved before the timer can restart.
     if (activePlan && state.status === "finished") return;
     if (state.status !== "running" && !activePlan) {
@@ -584,7 +617,7 @@ export default function App() {
   };
 
   const cancelOrReset = useCallback(async () => {
-    if (recovery || !recoveryChecked || queueTransitionRef.current) return;
+    if (recovery || !recoveryChecked || queueTransitionRef.current || scheduleStartingRef.current) return;
     if (completion?.phase === "save-error") return;
     let savedPartial = false;
     // Completion saves asynchronously; don't record the same finished interval twice.
@@ -626,8 +659,8 @@ export default function App() {
 
   const toggleClickThrough = useCallback(() => setSettings((previous) => ({ ...previous, clickThrough: !previous.clickThrough })), []);
 
-  const startPlan = useCallback((plan: SessionPlan, replaceFinished = false) => {
-    if (recovery || !recoveryChecked) return;
+  const startPlan = useCallback((plan: SessionPlan, replaceFinished = false, scheduled = false) => {
+    if (recovery || !recoveryChecked || (scheduleStartingRef.current && !scheduled)) return false;
     if (activePlan && !(replaceFinished && state.status === "finished" && completion && completion.phase !== "save-error")) {
       showStatus("Finish or end & save the current session before starting another task");
       setView("hud");
@@ -639,7 +672,7 @@ export default function App() {
       ? (preference.track ? { track: preference.track, volume: preference.volume, pauseWithTimer: true } : null)
       : plan.focusAudio;
     if (plan.focusAudio !== undefined) saveFocusAudioPreference(plan.focusAudio);
-    const startedPlan = { ...plan, completedFocusCycles: 0, lastCompletedFocusStartedAt: undefined, longBreakAtCount: undefined, breakKind: undefined, activeBreakMinutes: undefined, longBreakMinutes: settings.longBreakMinutes, cyclesBeforeLongBreak: settings.cyclesBeforeLongBreak, workSessionId: crypto.randomUUID(), focusAudio: selectedAudio, phase: "work" as const, startedAt: new Date().toISOString() };
+    const startedPlan = { ...plan, completedFocusCycles: 0, lastCompletedFocusStartedAt: undefined, longBreakAtCount: undefined, breakKind: undefined, activeBreakMinutes: undefined, longBreakMinutes: plan.longBreakMinutes ?? settings.longBreakMinutes, cyclesBeforeLongBreak: plan.cyclesBeforeLongBreak ?? settings.cyclesBeforeLongBreak, workSessionId: crypto.randomUUID(), focusAudio: selectedAudio, phase: "work" as const, startedAt: new Date().toISOString() };
     setStandaloneFocusAudio(selectedAudio);
     setActivePlan(startedPlan);
     setSessionName(plan.task);
@@ -655,6 +688,20 @@ export default function App() {
     ensureProjectTask(plan.project, plan.task).then(() => refreshSessions()).catch((error) => setDatabaseError(String(error)));
     setView("hud");
   }, [recovery, recoveryChecked, activePlan, state.status, completion, refreshSessions, showStatus, settings.longBreakMinutes, settings.cyclesBeforeLongBreak]);
+
+  const scheduleLive = useRef({ active: scheduleSessionActive, blocked: false, startPlan });
+  scheduleLive.current = { active: scheduleSessionActive, blocked: Boolean(recovery) || !recoveryChecked, startPlan };
+  const respondSchedule = async (status: "started" | "dismissed" | "deferred") => {
+    if (!reminder || scheduleStartingRef.current) return;
+    if (status === "started" && (scheduleLive.current.active || scheduleLive.current.blocked || queueTransitionRef.current)) { setReminderError("Finish the current session first."); return; }
+    scheduleStartingRef.current = true; setReminderBusy(true); setReminderError("");
+    try {
+      await respondToReminder(reminder.id, status);
+      if (status === "started") scheduleLive.current.startPlan(schedulePlan(reminder.schedule), false, true);
+      await scheduleStore.refresh();
+    } catch (error) { setReminderError(String(error)); }
+    finally { scheduleStartingRef.current = false; setReminderBusy(false); }
+  };
 
   const startDefaultDeepWork = useCallback(() => startPlan({
     kind: "deep-work",
@@ -691,7 +738,7 @@ export default function App() {
   }, [activePlan]);
 
   const startQueueTask = async (item: DailyQueueItem, fromCompletion = false) => {
-    if (queueTransitionRef.current) return;
+    if (queueTransitionRef.current || scheduleStartingRef.current) return;
     if (!queueReady || recovery || !recoveryChecked) throw new Error("Wait for session recovery and the queue to load.");
     if (item.completedAt || !queueItems.some((entry) => entry.id === item.id && !entry.completedAt)) throw new Error("This task is no longer available. Reopen it in Today to continue.");
     if (activePlan && !(fromCompletion && state.status === "finished" && completion && completion.phase !== "save-error")) throw new Error("Finish or end & save the current session first.");
@@ -838,26 +885,26 @@ export default function App() {
 
   useEffect(() => {
     if (!appWindow) return;
-    if (settings.clickThrough && !captureOpen && !recovery && !completion && view === "hud" && !breakActivitiesOnScreen) {
+    if (settings.clickThrough && !captureOpen && !reminderOpen && !recovery && !completion && view === "hud" && !breakActivitiesOnScreen) {
       setClickThroughNotice(true);
       const timer = window.setTimeout(() => { appWindow.setIgnoreCursorEvents(true).catch(console.error); setClickThroughNotice(false); }, 900);
       return () => window.clearTimeout(timer);
     }
     setClickThroughNotice(false);
     appWindow.setIgnoreCursorEvents(false).catch(console.error);
-  }, [settings.clickThrough, captureOpen, recovery, completion, view, breakActivitiesOnScreen]);
+  }, [settings.clickThrough, captureOpen, reminderOpen, recovery, completion, view, breakActivitiesOnScreen]);
 
   useEffect(() => {
     if (!appWindow) return;
     let cancelled = false;
     const resize = async () => {
       const compact = settings.displayMode === "compact";
-      const hudSize = completion && activePlan?.queueItemId ? [420, 500] as const : showBreakActivities ? [420, 500] as const : completion && (compact || settings.size === "small") ? hudDimensions.medium : compact ? hudDimensions.small : hudDimensions[settings.size];
+      const hudSize = completion && activePlan?.queueItemId ? [420, 500] as const : showBreakActivities ? [420, 500] as const : (completion || reminderOpen) && (compact || settings.size === "small") ? hudDimensions.medium : compact ? hudDimensions.small : hudDimensions[settings.size];
       const desired = recovery ? [420, 420] as const : view === "hud"
         ? hudSize
         : view === "launcher"
           ? [500, 650] as const
-          : [(view === "dashboard" || view === "today") ? 580 : 500, 740] as const;
+          : [(view === "dashboard" || view === "today" || view === "schedule" || view === "saved") ? 580 : 500, 740] as const;
       const monitor = await currentHudMonitor();
       const workArea = monitor?.workArea.size.toLogical(monitor.scaleFactor);
       const width = workArea ? Math.max(280, Math.min(desired[0], workArea.width - 16)) : desired[0];
@@ -868,7 +915,7 @@ export default function App() {
     };
     resize().catch(console.error);
     return () => { cancelled = true; };
-  }, [recovery, completion, activePlan?.queueItemId, showBreakActivities, settings.displayMode, settings.size, settings.position, view]);
+  }, [recovery, completion, reminderOpen, activePlan?.queueItemId, showBreakActivities, settings.displayMode, settings.size, settings.position, view]);
 
   useEffect(() => {
     if (view === "hud") return;
@@ -1116,7 +1163,11 @@ export default function App() {
 
   const autostartError = databaseError.startsWith("Autostart:");
   const snapshotError = databaseError.startsWith("Session recovery unavailable:");
+  const reminderUI = reminder && recoveryChecked && !recovery ? <ScheduleReminder reminder={reminder} active={scheduleSessionActive} busy={reminderBusy} error={reminderError} remaining={reminders.length} onRespond={status => void respondSchedule(status)} /> : null;
   const errorNotices = <>
+    {scheduleStore.error && <p className="inline-error" role="alert">Schedules unavailable: {scheduleStore.error} <button type="button" onClick={() => void scheduleStore.refresh().catch(() => {})}>Retry</button></p>}
+    {scheduleStore.notificationError && <p className="inline-error" role="alert">{scheduleStore.notificationError}</p>}
+
     {databaseError && <ErrorNotice key={databaseError} title={autostartError ? "Start on login unavailable" : snapshotError ? "Session recovery unavailable" : "History storage needs attention"}
       message={autostartError ? "In Settings → HUD, turn Start on system login off and on to try again."
         : snapshotError ? "Your session recovery copy could not be stored. Check available disk space and app storage permissions, then return to the timer to retry the action."
@@ -1147,7 +1198,8 @@ export default function App() {
 
   if (recovery) return <main className="app-shell size-large" style={shellStyle}><section className="hud"><SessionRecovery snapshot={recovery} busy={recoveryBusy || !recoveryChecked} error={recoveryError} onResume={recoverSession} onDiscard={discardRecovery} /></section></main>;
 
-  const savedThoughts = <CaptureReview
+  const savedThoughts = <SavedThoughtsWorkspace
+    onToday={() => setView("today")} onClose={() => setView("hud")} onDragStart={dragStart} notices={errorNotices}
     captures={captures} projects={projects} defaultMinutes={settings.pomodoroWorkMinutes} ready={capturesReady}
     onUpdate={async (capture) => { await saveCapture(capture); setCaptures((previous) => previous.map((item) => item.id === capture.id ? capture : item)); }}
     onDelete={async (id) => { await deleteCapture(id); setCaptures((previous) => previous.filter((item) => item.id !== id)); }}
@@ -1161,14 +1213,22 @@ export default function App() {
       } finally { queueWriteRef.current = false; }
     }}
   />;
+  if (view === "saved") return <main className="app-shell app-shell--workspace" style={shellStyle}>{savedThoughts}</main>;
+  if (view === "schedule") return <main className="app-shell app-shell--workspace" style={shellStyle}><ScheduleWorkspace
+    schedules={scheduleStore.data.schedules} settings={settings} projects={projects} ready={scheduleStore.ready}
+    onSave={scheduleStore.save} onDelete={scheduleStore.remove} onToday={() => setView("today")}
+    onClose={() => setView("hud")} onDragStart={dragStart} notices={errorNotices} reminder={reminderUI}
+  /></main>;
   if (view === "today") return <main className="app-shell app-shell--workspace" style={shellStyle}><TodayQueue
+    schedule={<SchedulePreview schedules={scheduleStore.data.schedules} ready={scheduleStore.ready && !scheduleStore.error} onOpen={() => setView("schedule")} />}
+    onSavedThoughts={() => setView("saved")} pendingThoughtCount={capturesReady ? thoughtCount : undefined}
     items={queueItems} sessions={sessions} projects={projects} today={today} activeId={activePlan?.queueItemId}
     canStart={!activePlan && recoveryChecked} ready={queueReady} defaultMinutes={settings.pomodoroWorkMinutes}
     onChange={changeQueue} onStart={startQueueTask} onClose={() => setView("hud")} onDragStart={dragStart} notices={errorNotices}
   /></main>;
   if (view === "launcher") return <main className="app-shell app-shell--workspace" style={shellStyle}><SessionLauncher settings={settings} projects={projects} initialTask={sessionName} onToday={() => setView("today")} onStart={startPlan} onClose={() => setView("hud")} onDragStart={dragStart} /></main>;
   if (view === "dashboard") return <main className="app-shell app-shell--workspace" style={shellStyle}><Dashboard
-    tab={dashboardTab} onTabChange={setDashboardTab} savedThoughts={savedThoughts} pendingThoughtCount={thoughtCount}
+    tab={dashboardTab} onTabChange={setDashboardTab}
     notices={errorNotices}
     onToday={() => setView("today")}
     sessions={sessions}
@@ -1176,12 +1236,13 @@ export default function App() {
     onDelete={async (id) => { await deleteSession(id); await refreshSessions(); }}
     onUpdate={async (session) => { await updateSession(session); refreshSessions(); }}
     onExport={(format) => exportSessions(format, sessions)}
-    onBackup={async () => { if (!queueReady || !capturesReady) throw new Error("Load the queue and saved thoughts before creating a backup."); await createBackup(settings, sessions, queueItems, captures); }}
+    onBackup={async () => { if (!queueReady || !capturesReady) throw new Error("Load the queue and saved thoughts before creating a backup."); await createBackup(settings, sessions, queueItems, captures, await getScheduleData()); }}
     onRestore={async () => {
       if (activePlan) throw new Error("End & save the current session before restoring a backup.");
       const backup = await selectBackup();
-      if (!backup || !await confirm(`Replace current history and task queue with ${backup.sessions.length} backed-up sessions and ${(backup.queueItems ?? []).length} queue items and ${(backup.captures ?? []).length} saved thoughts, and restore all backed-up settings? This can change autostart, shortcuts, and click-through behavior.`, { title: "Restore history and settings", kind: "warning" })) return;
-      await replaceSessions(backup.sessions, backup.queueItems ?? [], backup.captures ?? []);
+      if (!backup || !await confirm(`Replace current history and task queue with ${backup.sessions.length} backed-up sessions and ${(backup.queueItems ?? []).length} queue items and ${(backup.captures ?? []).length} saved thoughts, ${(backup.focusSchedules?.schedules ?? []).length} schedules, and restore all backed-up settings? This can change autostart, shortcuts, and click-through behavior.`, { title: "Restore history and settings", kind: "warning" })) return;
+      await replaceSessions(backup.sessions, backup.queueItems ?? [], backup.captures ?? [], backup.focusSchedules ?? { schedules: [], occurrences: [] });
+      await scheduleStore.refresh();
       setCaptures(backup.captures ?? []); setCapturesReady(true);
       setQueueItems(backup.queueItems ?? []);
       setQueueReady(true);
@@ -1191,6 +1252,7 @@ export default function App() {
     onResetDatabase={async () => {
       if (activePlan) throw new Error("End & save the current session before resetting the database.");
       await resetDatabase();
+      await scheduleStore.refresh();
       setCaptures([]); setCapturesReady(true);
       setQueueItems([]);
       setQueueReady(true);
@@ -1207,13 +1269,13 @@ export default function App() {
   const statusLabel = activePlan?.phase === "break" && state.status === "running" ? "RECHARGING" : state.status === "running" ? "WORKING" : state.status === "paused" ? "PAUSED" : state.status === "finished" ? "COMPLETE" : "READY";
 
   const configuredSize = settings.displayMode === "compact" ? "small" : settings.size;
-  const effectiveSize = completion && activePlan?.queueItemId ? "large" : showBreakActivities ? "large" : completion && configuredSize === "small" ? "medium" : configuredSize;
+  const effectiveSize = completion && activePlan?.queueItemId ? "large" : showBreakActivities ? "large" : (completion || reminderOpen) && configuredSize === "small" ? "medium" : configuredSize;
   return <main className={`app-shell size-${effectiveSize} display-${settings.displayMode}${showBreakActivities ? " break-activity-shell" : ""}`} style={shellStyle}>
     <section className={`hud hud--${state.status} ${activePlan?.phase === "break" ? "hud--break" : ""}`}>
       <header className="hud__header" data-tauri-drag-region onMouseDown={dragStart}>
         <button className="brand" onClick={() => !activePlan && setState((previous) => initialTimerState(previous.mode === "stopwatch" ? "countdown" : "stopwatch", settings.defaultDuration))} title={activePlan ? label : "Switch timer mode"}><span className="status-dot" /><span>{label}</span></button>
         <div className="hud__header-actions">
-          {activePlan?.phase === "break" && thoughtCount > 0 ? <button type="button" className="status-label capture-review-link" title={`${thoughtCount} thoughts saved · Review`} onClick={() => { setHudPopover(null); setDashboardTab("saved"); setView("dashboard"); }}>{thoughtCount} saved · Review</button> : <span className={`status-label status-label--${state.status}`}>{statusLabel}</span>}
+          {activePlan?.phase === "break" && thoughtCount > 0 ? <button type="button" className="status-label capture-review-link" title={`${thoughtCount} thoughts saved · Review`} onClick={() => { setHudPopover(null); setView("saved"); }}>{thoughtCount} saved · Review</button> : <span className={`status-label status-label--${state.status}`}>{statusLabel}</span>}
           <button
             className="hud__minimize"
             type="button"
@@ -1224,9 +1286,21 @@ export default function App() {
           >
             <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 8h8" /></svg>
           </button>
+          <button
+            className="hud__close"
+            type="button"
+            title="Quit DeepHUD"
+            aria-label="Quit DeepHUD"
+            disabled={!appWindow}
+            onMouseDown={(event) => event.stopPropagation()}
+            onClick={() => void quitApp()}
+          >
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 4 8 8M12 4l-8 8" /></svg>
+          </button>
         </div>
       </header>
       <div className="hud__body">
+        {showBreakActivities && reminder && <button type="button" className="workspace-nav-button" onClick={() => { setView("schedule"); }}>{reminders.length} scheduled · Review</button>}
         {showBreakActivities && breakActivity.key ? <BreakActivities
           key={breakActivity.key}
           state={state}
@@ -1271,22 +1345,19 @@ export default function App() {
         </div>}
         {hudPopover === "more" && <div id="hud-more-controls" className="hud-popover hud-popover--more" role="dialog" aria-label="More controls">
           <div className="hud-popover__header"><span>More controls</span><button type="button" onClick={() => setHudPopover(null)} aria-label="Close more controls">×</button></div>
-          {activePlan && <div className="hud-panel-icons hud-panel-icons--session" role="group" aria-label="Session controls">
-            {state.mode === "countdown" && <>
-              <button type="button" disabled={state.status === "finished"} title="Subtract 5 minutes" aria-label="Subtract 5 minutes" onClick={() => adjustActiveTime(-5)}><Icon name="minus" /></button>
-              <button type="button" disabled={state.status === "finished"} title="Add 5 minutes" aria-label="Add 5 minutes" onClick={() => adjustActiveTime(5)}><Icon name="plus" /></button>
-              {activePlan.kind === "pomodoro" && <button type="button" disabled={state.status === "finished"} title="Skip interval" aria-label="Skip interval" onClick={() => { void skipInterval(); setHudPopover(null); }}><Icon name="skip" /></button>}
-            </>}
-            <button type="button" title="End & save session" aria-label="End & save session" onClick={() => void cancelOrReset()}><Icon name="close" /></button>
-          </div>}
           <div className="hud-panel-icons" role="group" aria-label="Audio and navigation">
             <button type="button" className={`control-audio ${focusAudioIsPlaying ? "is-playing" : ""}`} title="Focus audio" aria-label="Focus audio" onClick={toggleAudioPopover}><Icon name="audio" /></button>
             <button type="button" title="Productivity dashboard" aria-label="Productivity dashboard" onClick={() => { setHudPopover(null); setView("dashboard"); }}><Icon name="chart" /></button>
+            <span className="hud-panel-slot"><button type="button" title="Focus schedule" aria-label="Focus schedule" onClick={() => { setHudPopover(null); setView("schedule"); }}><Icon name="calendar" /></button></span>
+            <button type="button" title="Saved for later" aria-label={capturesReady ? `Saved for later, ${thoughtCount} unhandled thoughts` : "Saved for later"} onClick={() => { setHudPopover(null); setView("saved"); }}>
+              <Icon name="bookmark" />{capturesReady && thoughtCount > 0 && <span className="saved-thoughts-count" aria-hidden="true">{thoughtCount > 99 ? "99+" : thoughtCount}</span>}
+            </button>
             <button type="button" title="Settings" aria-label="Settings" onClick={() => { setHudPopover(null); setView("settings"); }}><Icon name="settings" /></button>
           </div>
         </div>}
-        <Controls status={state.status} activeSession={Boolean(activePlan)} onStartPause={handleStartPause} onReset={cancelOrReset} onToday={() => setView("today")} onNewSession={() => setView("launcher")} onExpand={expandHud} openPopover={hudPopover} onMore={() => setHudPopover((openPopover) => openPopover === "more" ? null : "more")} />
+        <Controls onAdjustTime={activePlan && state.mode === "countdown" ? adjustActiveTime : undefined} onSkip={activePlan?.kind === "pomodoro" && state.mode === "countdown" ? () => { void skipInterval(); setHudPopover(null); } : undefined} status={state.status} activeSession={Boolean(activePlan)} onStartPause={handleStartPause} onReset={cancelOrReset} onToday={() => setView("today")} onNewSession={() => setView("launcher")} onExpand={expandHud} openPopover={hudPopover} onMore={() => setHudPopover((openPopover) => openPopover === "more" ? null : "more")} />
       </div>
+      {reminderOpen && reminderUI}
       {captureOpen && <DistractionCaptureInput text={captureDraft.text} busy={captureBusy} error={captureError} onChange={(text) => { captureActivityRef.current = performance.now(); setCaptureDraft((previous) => previous ? { ...previous, text } : previous); }} onSave={() => void commitCapture()} onCancel={closeCapture} />}
       {!captureOpen && (completion && activePlan?.queueItemId && completion.phase !== "save-error" ? <QueueCompletion
         plan={activePlan} item={queueItems.find((item) => item.id === activePlan.queueItemId)} next={nextQueueItem(queueItems, activePlan.queueItemId, today)} sessions={sessions}

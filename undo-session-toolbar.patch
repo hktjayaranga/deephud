@@ -1,0 +1,92 @@
+--- a/src/components/Controls.tsx
++++ b/src/components/Controls.tsx
+@@ -8,6 +8,8 @@
+   onToday: () => void;
+   onNewSession: () => void;
+   onExpand: () => void;
++  onAdjustTime?: (minutes: number) => void;
++  onSkip?: () => void;
+   openPopover?: "audio" | "more" | null;
+   onMore?: () => void;
+ }
+@@ -33,14 +35,21 @@
+   return null;
+ }
+ 
+-export default function Controls({ status, activeSession, onStartPause, onReset, onToday, onNewSession, onExpand, openPopover = null, onMore }: ControlsProps) {
+-  const primaryLabel = status === "running" ? "Pause" : "Start";
++export default function Controls({ status, activeSession, onStartPause, onReset, onToday, onNewSession, onExpand, onAdjustTime, onSkip, openPopover = null, onMore }: ControlsProps) {
++  const primaryLabel = status === "running" ? "Pause" : status === "paused" ? "Resume" : "Start";
+   const resetLabel = activeSession ? "End & save session" : "Reset";
+-  return <div className="controls">
++  return <div className={`controls${activeSession ? " controls--active" : ""}`}>
+     <button className="controls__primary" onClick={onStartPause} title={primaryLabel} aria-label={primaryLabel}><Icon name={status === "running" ? "pause" : "play"} /></button>
+     <button className="control-reset" onClick={onReset} title={resetLabel} aria-label={resetLabel}><Icon name={activeSession ? "close" : "reset"} /></button>
+-    <button className="control-focus" onClick={onNewSession} disabled={activeSession} title={activeSession ? "End & save the current session before starting a new focus session" : "Start focus session"} aria-label="Start focus session"><Icon name="target" /></button>
++    {!activeSession && <>
++    <button className="control-focus" onClick={onNewSession} title="Start focus session" aria-label="Start focus session"><Icon name="target" /></button>
+     <button className="control-queue" onClick={onToday} title="Today’s task queue" aria-label="Today’s task queue"><svg viewBox="0 0 24 24"><path d="m3 6 2 2 3-4M11 6h10M3 13h4M11 13h10M3 20h4M11 20h10" /></svg></button>
++    </>}
++    {activeSession && onAdjustTime && <>
++      <button className="control-adjust" disabled={status === "finished"} onClick={() => onAdjustTime(-5)} title="Subtract 5 minutes" aria-label="Subtract 5 minutes"><Icon name="minus" /></button>
++      <button className="control-adjust" disabled={status === "finished"} onClick={() => onAdjustTime(5)} title="Add 5 minutes" aria-label="Add 5 minutes"><Icon name="plus" /></button>
++    </>}
++    {activeSession && onSkip && <button className="control-skip" disabled={status === "finished"} onClick={onSkip} title="Skip interval" aria-label="Skip interval"><Icon name="skip" /></button>}
+     <button className={`control-more ${openPopover === "more" ? "is-active" : ""}`} onClick={onMore} title="More controls" aria-label="More controls" aria-expanded={openPopover === "more"} aria-controls="hud-more-controls"><Icon name="more" /></button>
+     <button className="control-expand" onClick={onExpand} title="Expand HUD" aria-label="Expand HUD and show all controls"><Icon name="expand" /></button>
+   </div>;
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -1315,14 +1315,6 @@
+         </div>}
+         {hudPopover === "more" && <div id="hud-more-controls" className="hud-popover hud-popover--more" role="dialog" aria-label="More controls">
+           <div className="hud-popover__header"><span>More controls</span><button type="button" onClick={() => setHudPopover(null)} aria-label="Close more controls">×</button></div>
+-          {activePlan && <div className="hud-panel-icons hud-panel-icons--session" role="group" aria-label="Session controls">
+-            {state.mode === "countdown" && <>
+-              <button type="button" disabled={state.status === "finished"} title="Subtract 5 minutes" aria-label="Subtract 5 minutes" onClick={() => adjustActiveTime(-5)}><Icon name="minus" /></button>
+-              <button type="button" disabled={state.status === "finished"} title="Add 5 minutes" aria-label="Add 5 minutes" onClick={() => adjustActiveTime(5)}><Icon name="plus" /></button>
+-              {activePlan.kind === "pomodoro" && <button type="button" disabled={state.status === "finished"} title="Skip interval" aria-label="Skip interval" onClick={() => { void skipInterval(); setHudPopover(null); }}><Icon name="skip" /></button>}
+-            </>}
+-            <button type="button" title="End & save session" aria-label="End & save session" onClick={() => void cancelOrReset()}><Icon name="close" /></button>
+-          </div>}
+           <div className="hud-panel-icons" role="group" aria-label="Audio and navigation">
+             <button type="button" className={`control-audio ${focusAudioIsPlaying ? "is-playing" : ""}`} title="Focus audio" aria-label="Focus audio" onClick={toggleAudioPopover}><Icon name="audio" /></button>
+             <button type="button" title="Productivity dashboard" aria-label="Productivity dashboard" onClick={() => { setHudPopover(null); setView("dashboard"); }}><Icon name="chart" /></button>
+@@ -1330,7 +1322,7 @@
+             <button type="button" title="Settings" aria-label="Settings" onClick={() => { setHudPopover(null); setView("settings"); }}><Icon name="settings" /></button>
+           </div>
+         </div>}
+-        <Controls status={state.status} activeSession={Boolean(activePlan)} onStartPause={handleStartPause} onReset={cancelOrReset} onToday={() => setView("today")} onNewSession={() => setView("launcher")} onExpand={expandHud} openPopover={hudPopover} onMore={() => setHudPopover((openPopover) => openPopover === "more" ? null : "more")} />
++        <Controls onAdjustTime={activePlan && state.mode === "countdown" ? adjustActiveTime : undefined} onSkip={activePlan?.kind === "pomodoro" && state.mode === "countdown" ? () => { void skipInterval(); setHudPopover(null); } : undefined} status={state.status} activeSession={Boolean(activePlan)} onStartPause={handleStartPause} onReset={cancelOrReset} onToday={() => setView("today")} onNewSession={() => setView("launcher")} onExpand={expandHud} openPopover={hudPopover} onMore={() => setHudPopover((openPopover) => openPopover === "more" ? null : "more")} />
+       </div>
+       {reminderOpen && reminderUI}
+       {captureOpen && <DistractionCaptureInput text={captureDraft.text} busy={captureBusy} error={captureError} onChange={(text) => { captureActivityRef.current = performance.now(); setCaptureDraft((previous) => previous ? { ...previous, text } : previous); }} onSave={() => void commitCapture()} onCancel={closeCapture} />}
+--- a/src/App.css
++++ b/src/App.css
+@@ -507,12 +507,11 @@
+ .queue-completion .queue-next { display: block; width: 100%; margin: 10px 0; color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
+ .queue-completion { max-height: calc(100% - 12px); overflow-y: auto; }
+ @media (max-width: 380px) { .queue-editor__numbers { grid-template-columns: 1fr; } .queue-item__actions > span { flex-basis: 100%; } }
+-.size-small .control-queue { display: none; }
++.size-small .control-queue, .size-small .control-adjust, .size-small .control-skip { display: none; }
+ .today-queue button:disabled, .queue-completion button:disabled { opacity: .45; cursor: not-allowed; }
+ 
+ .hud-panel-icons { display: flex; justify-content: center; gap: 12px; }
+ .hud-panel-slot { flex: 0 0 36px; width: 36px; height: 36px; }
+-.hud-panel-icons--session { margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+ .hud-panel-icons button { position: relative; display: grid; place-items: center; width: 36px; height: 36px; padding: 0; border: 1px solid transparent; border-radius: 10px; background: var(--button); color: var(--text); cursor: pointer; }
+ .hud-panel-icons button:hover:not(:disabled) { background: var(--button-hover); }
+ .hud-panel-icons svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+@@ -579,6 +578,12 @@
+   .focus-calendar__day small { font-size: 7px; }
+ }
+ 
++/* Keep the popover pointer aligned with More as session controls change. */
++.hud__body:has(.controls--active):not(:has(.control-adjust)) .hud-popover::after { right: calc(50% - 44px); }
++.hud__body:has(.control-skip) .hud-popover::after { right: calc(50% - 104px); }
++.size-large .hud__body:has(.controls--active):not(:has(.control-adjust)) .hud-popover::after { right: calc(50% - 49px); }
++.size-large .hud__body:has(.control-skip) .hud-popover::after { right: calc(50% - 116.5px); }
++
+ .schedule-panel > .insight-note { margin-bottom: 14px; }
+ .schedule-card { margin-bottom: 10px; }
+ .schedule-card h3 { min-width: 0; overflow-wrap: anywhere; font-size: 12px; }
