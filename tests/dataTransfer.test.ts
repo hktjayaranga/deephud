@@ -24,6 +24,18 @@ const backup = (overrides: Record<string, unknown> = {}) => ({
 });
 
 describe("CSV export hardening", () => {
+  it.each(["project", "task"] as const)("keeps carriage-return formula payloads inside the %s cell", (field) => {
+    const payload = "safe\r=1+1";
+    const restored = validateBackup(backup({ sessions: [{ ...session, [field]: payload }] }), Date.parse("2026-09-01T00:00:00.000Z"));
+    const csv = sessionsToCsv(restored.sessions);
+    const project = field === "project" ? '"safe\r=1+1"' : session.project;
+    const task = field === "task" ? '"safe\r=1+1"' : session.task;
+    expect(csv).toBe([
+      "Started,Ended,Type,Project,Task,Planned minutes,Focus seconds,Paused seconds",
+      `${session.startedAt},${session.endedAt},pomodoro,${project},${task},25,1500,0`,
+    ].join("\n"));
+  });
+
   it.each(["=WEBSERVICE(\"https://example.test\")", "+cmd", "-2+3", "@SUM(A1)", "   =1+1", "\tformula", "\rformula"])("neutralizes formula-like text: %j", (task) => {
     const csv = sessionsToCsv([{ ...session, task }]);
     expect(csv.split("\n")[1]).toContain("'");

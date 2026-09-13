@@ -109,7 +109,8 @@ function sessionsToCsv(sessions: SessionRecord[]) {
 function csvCell(value: string | number) {
   const original = String(value);
   const text = /^[\t\r]|^\s*[=+\-@]/.test(original) ? `'${original}` : original;
-  return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  // Quote both CSV record separators so embedded text cannot start a new row.
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
 async function saveContent(defaultName: string, extension: string, content: string) {
