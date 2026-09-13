@@ -15,7 +15,7 @@ interface Props {
   goalMinutes: number;
   onDelete: (id: number) => Promise<void>;
   onUpdate: (session: SessionRecord) => Promise<void>;
-  onExport: (format: "csv" | "json") => Promise<void>;
+  onExport: (format: "csv" | "json", records: SessionRecord[]) => Promise<void>;
   onBackup: () => Promise<void>;
   onRestore: () => Promise<void>;
   onResetDatabase: () => Promise<void>;
@@ -44,6 +44,7 @@ export default function Dashboard({ tab, onTabChange, sessions, goalMinutes, onD
   const [dateFilter, setDateFilter] = useState("");
   const [editing, setEditing] = useState<SessionRecord | null>(null);
   const [actionError, setActionError] = useState("");
+  const [exportFormat, setExportFormat] = useState<"csv" | "json">("csv");
   const [deletion, setDeletion] = useState<{ id: number } | "all" | null>(null);
   const requestDelete = (id: number) => setDeletion({ id });
   const hasFilters = Boolean(search.trim() || projectFilter || dateFilter);
@@ -51,7 +52,8 @@ export default function Dashboard({ tab, onTabChange, sessions, goalMinutes, onD
   const stats = useMemo(() => calculateStats(sessions, goalMinutes, now), [sessions, goalMinutes, now]);
   const projectNames = useMemo(() => [...new Set(sessions.map((session) => session.project).filter(Boolean))].sort(), [sessions]);
   const workSessions = useMemo(() => groupSessions(sessions), [sessions]);
-  const filteredSessions = useMemo(() => groupSessions(filterHistoryRecords(sessions, search, projectFilter, dateFilter)), [dateFilter, projectFilter, search, sessions]);
+  const filteredRecords = useMemo(() => filterHistoryRecords(sessions, search, projectFilter, dateFilter), [dateFilter, projectFilter, search, sessions]);
+  const filteredSessions = useMemo(() => groupSessions(filteredRecords), [filteredRecords]);
   const openDay = (date: string) => { setSearch(""); setProjectFilter(""); setDateFilter(date); onTabChange("history"); };
   const run = async (action: () => Promise<void>) => { try { setActionError(""); await action(); } catch (error) { setActionError(String(error)); } };
 
@@ -103,7 +105,15 @@ export default function Dashboard({ tab, onTabChange, sessions, goalMinutes, onD
         <div className="section-title"><h2>Session history</h2><span>{filteredSessions.length} shown</span></div>
         <div className="history-filters"><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search task or project" /><select value={projectFilter} onChange={(event) => setProjectFilter(event.target.value)}><option value="">All projects</option>{projectNames.map((project) => <option key={project}>{project}</option>)}</select><input type="date" value={dateFilter} onChange={(event) => setDateFilter(event.target.value)} /></div>
         {dateFilter && <p className="insight-note">Showing intervals started on {dateFilter} (local time). <button type="button" className="workspace-nav-button" onClick={clearFilters}>Clear filters</button></p>}
-        <div className="data-actions"><button onClick={() => run(() => onExport("csv"))}>Export CSV</button><button onClick={() => run(() => onExport("json"))}>Export JSON</button><button onClick={() => run(onBackup)}>Backup</button><button onClick={() => run(onRestore)}>Restore</button><button className="danger-action" onClick={() => setDeletion("all")}>Reset database</button></div>
+        <div className="history-export" role="group" aria-label="Export history">
+          <label>Export format <select value={exportFormat} onChange={(event) => setExportFormat(event.target.value as "csv" | "json")}><option value="csv">CSV</option><option value="json">JSON</option></select></label>
+          <div className="data-actions">
+            <button type="button" disabled={!filteredRecords.length} onClick={() => run(() => onExport(exportFormat, filteredRecords))}>Export filtered results ({filteredRecords.length} {filteredRecords.length === 1 ? "record" : "records"})</button>
+            <button type="button" disabled={!sessions.length} onClick={() => run(() => onExport(exportFormat, sessions))}>Export all history ({sessions.length} {sessions.length === 1 ? "record" : "records"})</button>
+          </div>
+          <p className="insight-note">Each record is one focus interval. Filters apply only to filtered exports.</p>
+        </div>
+        <div className="data-actions"><button onClick={() => run(onBackup)}>Backup</button><button onClick={() => run(onRestore)}>Restore</button><button className="danger-action" onClick={() => setDeletion("all")}>Reset database</button></div>
         {actionError && <p className="inline-error">{actionError}</p>}
         <HistoryList sessions={filteredSessions} onDelete={requestDelete} onEdit={setEditing} onClearFilters={hasFilters ? clearFilters : undefined} />
       </section>}

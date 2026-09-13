@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { Accent, HudPosition, HudSize, Settings, ShortcutAction, Theme } from "../services/settings";
+import { Accent, HudPosition, HudSize, Settings, ShortcutAction, Theme, effectiveIdleBehavior, idleBehaviorSettings } from "../services/settings";
 import { previewTimerSound, stopTimerSounds } from "../services/timerSounds";
-import { captureShortcut, displayShortcut, shortcutIdentity } from "../services/shortcuts";
+import { captureShortcut, clickThroughHint, displayShortcut, shortcutIdentity } from "../services/shortcuts";
 
 interface SettingsPanelProps {
   settings: Settings;
@@ -10,6 +10,7 @@ interface SettingsPanelProps {
   onDragStart: () => void;
   onShortcutRecordingChange: (recording: boolean) => void;
   notices?: React.ReactNode;
+  clickThroughShortcutAvailable?: boolean;
 }
 
 const positions: { value: HudPosition; label: string }[] = [
@@ -31,7 +32,8 @@ const shortcutLabels: Record<ShortcutAction, string> = {
   captureThought: "Save a thought for later",
 };
 
-export default function SettingsPanel({ settings, onChange, onClose, onDragStart, onShortcutRecordingChange, notices }: SettingsPanelProps) {
+export default function SettingsPanel({ settings, onChange, onClose, onDragStart, onShortcutRecordingChange, notices, clickThroughShortcutAvailable = false }: SettingsPanelProps) {
+  const idleBehavior = effectiveIdleBehavior(settings);
   const [previewTone, setPreviewTone] = useState<"tick" | "work" | "break" | null>(null);
   const [previewMessage, setPreviewMessage] = useState("");
   const previewRequest = useRef(0);
@@ -132,7 +134,7 @@ export default function SettingsPanel({ settings, onChange, onClose, onDragStart
           </SettingRow>
           <Toggle label="Always on top" checked={settings.alwaysOnTop} onChange={(alwaysOnTop) => onChange({ alwaysOnTop })} />
           <Toggle label="Corner snapping" hint="Snap near a screen corner after dragging" checked={settings.cornerSnapping} onChange={(cornerSnapping) => onChange({ cornerSnapping })} />
-          <Toggle label="Click-through mode" hint="Toggle back with Ctrl + Alt + C" checked={settings.clickThrough} onChange={(clickThrough) => onChange({ clickThrough })} />
+          <Toggle label="Click-through mode" hint={clickThroughHint(settings.shortcuts.clickThrough, clickThroughShortcutAvailable)} checked={settings.clickThrough} onChange={(clickThrough) => onChange({ clickThrough })} />
           <Toggle label="Start on system login" checked={settings.startOnLogin} onChange={(startOnLogin) => onChange({ startOnLogin })} />
           <Toggle label="Close to system tray" hint="Use the tray menu to quit completely" checked={settings.closeToTray} onChange={(closeToTray) => onChange({ closeToTray })} />
         </SettingsGroup>
@@ -183,16 +185,18 @@ export default function SettingsPanel({ settings, onChange, onClose, onDragStart
 
         <SettingsGroup title="Focus policy">
           <Toggle label="Track paused time" hint="Record interruptions separately from focused time" checked={settings.trackPausedTime} onChange={(trackPausedTime) => onChange({ trackPausedTime })} />
-          <Toggle label="Pause when computer is idle" hint={`Pause after ${settings.idleMinutes} minutes without input`} checked={settings.autoPauseIdle} onChange={(autoPauseIdle) => onChange({ autoPauseIdle })} />
-          <SettingRow label="When idle">
-            <select value={settings.idleBehavior} onChange={(event) => onChange({ idleBehavior: event.target.value as Settings["idleBehavior"] })}>
-              <option value="pause">Pause and wait</option>
-              <option value="exclude">Exclude idle time</option>
+          <SettingRow label="When computer is idle">
+            <select aria-label="When computer is idle" aria-describedby="idle-behavior-hint" value={idleBehavior} onChange={(event) => onChange(idleBehaviorSettings(event.target.value as Settings["idleBehavior"]))}>
               <option value="count">Keep counting</option>
+              <option value="pause">Pause</option>
+              <option value="exclude">Pause and resume automatically</option>
             </select>
           </SettingRow>
+          <p id="idle-behavior-hint" className="long-break-hint">{idleBehavior === "count"
+            ? "The timer keeps running when you are away."
+            : `Pause after ${settings.idleMinutes} minutes without input. ${idleBehavior === "pause" ? "Use Resume when you are ready." : "Resume automatically when keyboard or mouse activity returns."} Time before the pause remains counted. Idle activity is checked every 15 seconds in the desktop app.`}</p>
           <SettingRow label="Idle threshold" value="minutes">
-            <input className="number-input" type="number" min="1" max="60" value={settings.idleMinutes} onChange={(event) => onChange({ idleMinutes: Math.max(1, Number(event.target.value)) })} />
+            <input aria-label="Idle threshold in minutes" disabled={idleBehavior === "count"} className="number-input" type="number" min="1" max="60" value={settings.idleMinutes} onChange={(event) => onChange({ idleMinutes: Math.max(1, Math.min(60, Math.round(Number(event.target.value)))) })} />
           </SettingRow>
           <SettingRow label="Daily focus goal" value="minutes">
             <input className="number-input" type="number" min="15" max="1440" step="15" value={settings.dailyGoalMinutes} onChange={(event) => onChange({ dailyGoalMinutes: Math.max(15, Number(event.target.value)) })} />

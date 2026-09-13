@@ -216,6 +216,13 @@ pub fn run() {
             }
 
             let show = MenuItem::with_id(app, "show", "Show DeepHUD", true, None::<&str>)?;
+            let disable_click_through = MenuItem::with_id(
+                app,
+                "disable-click-through",
+                "Turn off click-through",
+                true,
+                None::<&str>,
+            )?;
             let toggle = MenuItem::with_id(app, "toggle", "Start / Pause", true, None::<&str>)?;
             let deep_work =
                 MenuItem::with_id(app, "deep-work", "Start Deep Work", true, None::<&str>)?;
@@ -227,13 +234,30 @@ pub fn run() {
                 None::<&str>,
             )?;
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&show, &toggle, &deep_work, &dashboard, &quit])?;
+            let menu = Menu::with_items(
+                app,
+                &[
+                    &show,
+                    &disable_click_through,
+                    &toggle,
+                    &deep_work,
+                    &dashboard,
+                    &quit,
+                ],
+            )?;
 
             let mut tray = TrayIconBuilder::with_id("main")
                 .menu(&menu)
                 .tooltip("DeepHUD")
                 .on_menu_event(|app, event| match event.id().as_ref() {
                     "show" => show_hud(app),
+                    "disable-click-through" => {
+                        if let Some(window) = app.get_webview_window("hud") {
+                            let _ = window.set_ignore_cursor_events(false);
+                        }
+                        let _ = app.emit("tray-action", "disable-click-through");
+                        show_hud(app);
+                    }
                     "toggle" => {
                         let _ = app.emit("tray-action", "toggle-timer");
                     }

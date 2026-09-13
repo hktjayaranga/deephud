@@ -2,6 +2,15 @@ export type Theme = "dark" | "light" | "system";
 export type Accent = "mint" | "blue" | "violet" | "amber" | "custom";
 export type ShortcutAction = "startPause" | "reset" | "showHide" | "clickThrough" | "startDeepWork" | "captureThought";
 export type IdleBehavior = "pause" | "exclude" | "count";
+
+/** Preserve the effective behavior of older settings and backups. */
+export function effectiveIdleBehavior(settings: Pick<Settings, "autoPauseIdle" | "idleBehavior">): IdleBehavior {
+  return settings.autoPauseIdle ? settings.idleBehavior : "count";
+}
+
+export function idleBehaviorSettings(idleBehavior: IdleBehavior): Pick<Settings, "autoPauseIdle" | "idleBehavior"> {
+  return { autoPauseIdle: idleBehavior !== "count", idleBehavior };
+}
 export type HudSize = "small" | "medium" | "large";
 export type HudPosition =
   | "top-left"

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { captureShortcut, displayShortcut, shortcutIdentity } from "../src/services/shortcuts";
+import { captureShortcut, clickThroughHint, displayShortcut, shortcutIdentity } from "../src/services/shortcuts";
 
 const keyEvent = (patch: Partial<Parameters<typeof captureShortcut>[0]> = {}) => ({
   key: "r",
@@ -9,6 +9,26 @@ const keyEvent = (patch: Partial<Parameters<typeof captureShortcut>[0]> = {}) =>
   shiftKey: false,
   metaKey: false,
   ...patch,
+});
+
+describe("click-through recovery instructions", () => {
+  it("shows the registered custom shortcut and the independent tray fallback", () => {
+    const hint = clickThroughHint("Ctrl+Shift+F8", true);
+    expect(hint).toContain("Ctrl + Shift + F8 to turn off");
+    expect(hint).not.toContain("Ctrl + Alt + C");
+    expect(hint).toContain("tray menu → Turn off click-through");
+  });
+
+  it("uses the tray fallback when the shortcut is cleared", () => {
+    expect(clickThroughHint("", false)).toBe("No shortcut set. Use the tray menu → Turn off click-through.");
+  });
+
+  it("does not promise a configured shortcut works before registration succeeds", () => {
+    const hint = clickThroughHint("Ctrl+Alt+C", false);
+    expect(hint).toContain("Shortcut unavailable");
+    expect(hint).not.toContain("Ctrl + Alt + C");
+    expect(hint).toContain("tray menu → Turn off click-through");
+  });
 });
 
 describe("shortcut recording", () => {

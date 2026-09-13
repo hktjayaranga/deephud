@@ -34,7 +34,9 @@ import { playChime, scheduleCountdown, stopTimerSounds, unlockAudio } from "./se
 import { FocusAudioPlan, FocusAudioTrack, SessionPhase, SessionPlan, completeFocusCycle, nextBreak, shouldAutoStartWork, transitionSessionPhase } from "./services/session";
 import { TimerState, initialTimerState } from "./services/timer";
 import { adjustedTarget, advanceElapsed, hasFinished } from "./services/timerMath";
-import { HudPosition, Settings, loadSettings, saveSettings } from "./services/settings";
+import { HudPosition, Settings, effectiveIdleBehavior, loadSettings, saveSettings } from "./services/settings";
+import { saveSkippedWorkInterval } from "./services/skipInterval";
+import { clickThroughHint } from "./services/shortcuts";
 import "./App.css";
 
 import { focusCompletionNotice, isFocusReminderDue } from "./services/notificationPolicy";
@@ -138,6 +140,8 @@ export default function App() {
   const [customPresetOpen, setCustomPresetOpen] = useState(false);
   const [customMinutes, setCustomMinutes] = useState(settings.defaultDuration);
   const [shortcutError, setShortcutError] = useState("");
+  const [registeredShortcuts, setRegisteredShortcuts] = useState<Settings["shortcuts"] | null>(null);
+  const clickThroughShortcutAvailable = registeredShortcuts === settings.shortcuts && Boolean(settings.shortcuts.clickThrough);
   const [shortcutRetry, setShortcutRetry] = useState(0);
   const [historyReloadNotice, setHistoryReloadNotice] = useState("");
   const [shortcutRecording, setShortcutRecording] = useState(false);
@@ -843,23 +847,26 @@ export default function App() {
   }, [activePlan, settings.fiveMinuteWarning, settings.notifications, settings.reminderNotifications, state]);
 
   useEffect(() => {
-    if (!isTauri() || !settings.autoPauseIdle) return;
+    const idleBehavior = effectiveIdleBehavior(settings);
+    if (idleBehavior !== "exclude") idlePausedRef.current = false;
+    if (!isTauri() || idleBehavior === "count") return;
+    let cancelled = false;
     const interval = window.setInterval(async () => {
       try {
         if (deferIdleForCapture(captureOpen, captureActivityRef.current, settings.idleMinutes, performance.now())) return;
         const idleSeconds = await invoke<number>("system_idle_seconds");
+        if (cancelled) return;
         if (deferIdleForCapture(captureOpen, captureActivityRef.current, settings.idleMinutes, performance.now())) return;
-        if (settings.idleBehavior === "count") return;
         if (idleSeconds >= settings.idleMinutes * 60 && state.status === "running") {
-          idlePausedRef.current = settings.idleBehavior === "exclude";
+          idlePausedRef.current = idleBehavior === "exclude";
           handleStartPause();
-        } else if (idleSeconds < 5 && idlePausedRef.current && state.status === "paused") {
+        } else if (idleBehavior === "exclude" && idleSeconds < 5 && idlePausedRef.current && state.status === "paused") {
           idlePausedRef.current = false;
           handleStartPause();
         }
       } catch (error) { console.warn("Idle detection unavailable", error); }
     }, 15_000);
-    return () => window.clearInterval(interval);
+    return () => { cancelled = true; window.clearInterval(interval); };
   }, [captureOpen, handleStartPause, settings.autoPauseIdle, settings.idleBehavior, settings.idleMinutes, state.status]);
 
   useEffect(() => { if (appWindow) appWindow.setAlwaysOnTop(settings.alwaysOnTop).catch(console.error); }, [settings.alwaysOnTop]);
@@ -930,6 +937,8 @@ export default function App() {
 
   useEffect(() => {
     if (!appWindow) return;
+    let cancelled = false;
+    setRegisteredShortcuts(null);
     if (shortcutRecording) {
       unregisterAll().catch((error) => setShortcutError(String(error)));
       return;
@@ -949,10 +958,15 @@ export default function App() {
           if (event.shortcut === shortcuts.startDeepWork) actionsRef.current.startDeepWork();
           if (event.shortcut === shortcuts.showHide) (await appWindow.isVisible()) ? await appWindow.hide() : await appWindow.show();
         });
-        setShortcutError("");
-      } catch (error) { setShortcutError(String(error)); }
+        if (!cancelled) {
+          setRegisteredShortcuts(shortcuts);
+          setShortcutError("");
+        }
+      } catch (error) {
+        if (!cancelled) { setRegisteredShortcuts(null); setShortcutError(String(error)); }
+      }
     }, 450);
-    return () => { window.clearTimeout(timer); unregisterAll().catch(console.error); };
+    return () => { cancelled = true; window.clearTimeout(timer); unregisterAll().catch(console.error); };
   }, [settings.shortcuts, shortcutRecording, shortcutRetry]);
 
   useEffect(() => {
@@ -962,6 +976,10 @@ export default function App() {
       if (event.payload === "toggle-timer") actionsRef.current.startPause();
       if (event.payload === "start-deep-work") actionsRef.current.startDeepWork();
       if (event.payload === "dashboard") actionsRef.current.dashboard();
+      if (event.payload === "disable-click-through") {
+        setSettings((previous) => ({ ...previous, clickThrough: false }));
+        showStatus("Click-through off");
+      }
     }).then((unlisten) => { removeListener = unlisten; });
     return () => removeListener?.();
   }, []);
@@ -994,30 +1012,24 @@ export default function App() {
   };
 
   const skipInterval = async () => {
-    if (!activePlan || activePlan.kind !== "pomodoro" || state.status === "finished") return;
-    if (activePlan.queueItemId) {
-      if (activePlan.phase === "break") {
+    if (!activePlan || activePlan.kind !== "pomodoro" || state.status === "finished" || queueTransitionRef.current) return;
+    if (activePlan.phase === "break") {
+      if (activePlan.queueItemId) {
         setState((previous) => ({ ...previous, elapsedMs: previous.targetMs, status: "finished" }));
-        return;
-      }
-      if (queueTransitionRef.current) return;
-      queueTransitionRef.current = true;
-      setState((previous) => ({ ...previous, status: "paused" }));
-      try {
-        if (state.elapsedMs > 0) await saveSession({
-          queueItemId: activePlan.queueItemId, workSessionId: activePlan.workSessionId, cycleCompleted: false,
-          startedAt: activePlan.startedAt, endedAt: new Date().toISOString(), plannedMinutes: activePlan.workMinutes,
-          focusSeconds: Math.max(1, Math.round(state.elapsedMs / 1000)),
-          pausedSeconds: Math.round((pausedMsRef.current + (settings.trackPausedTime && pauseStartedRef.current !== null ? performance.now() - pauseStartedRef.current : 0)) / 1000),
-          project: activePlan.project, task: activePlan.task, sessionKind: activePlan.kind,
-        });
-        startPhase("break");
-        await refreshSessions();
-      } catch (error) { setDatabaseError(String(error)); }
-      finally { queueTransitionRef.current = false; }
+      } else startPhase("work");
       return;
     }
-    startPhase(activePlan.phase === "work" ? "break" : "work");
+    queueTransitionRef.current = true;
+    if (state.status === "running") pauseStartedRef.current = performance.now();
+    setState((previous) => ({ ...previous, status: "paused" }));
+    try {
+      await saveSkippedWorkInterval(activePlan, state.elapsedMs,
+        pausedMsRef.current + (settings.trackPausedTime && pauseStartedRef.current !== null ? performance.now() - pauseStartedRef.current : 0));
+      startPhase("break");
+      if (state.elapsedMs > 0) showStatus("Partial focus saved · Break started");
+      await refreshSessions();
+    } catch (error) { setDatabaseError(String(error)); }
+    finally { queueTransitionRef.current = false; }
   };
 
   const applyFocusAudioTrack = (track: FocusAudioTrack | null) => {
@@ -1235,7 +1247,7 @@ export default function App() {
     goalMinutes={settings.dailyGoalMinutes}
     onDelete={async (id) => { await deleteSession(id); await refreshSessions(); }}
     onUpdate={async (session) => { await updateSession(session); refreshSessions(); }}
-    onExport={(format) => exportSessions(format, sessions)}
+    onExport={exportSessions}
     onBackup={async () => { if (!queueReady || !capturesReady) throw new Error("Load the queue and saved thoughts before creating a backup."); await createBackup(settings, sessions, queueItems, captures, await getScheduleData()); }}
     onRestore={async () => {
       if (activePlan) throw new Error("End & save the current session before restoring a backup.");
@@ -1261,7 +1273,7 @@ export default function App() {
     onClose={() => setView("hud")}
     onDragStart={dragStart}
   /></main>;
-  if (view === "settings") return <main className="app-shell app-shell--settings" style={shellStyle}><SettingsPanel settings={settings} onChange={changeSettings} onClose={() => setView("hud")} onDragStart={dragStart} onShortcutRecordingChange={setShortcutRecording} notices={errorNotices} /></main>;
+  if (view === "settings") return <main className="app-shell app-shell--settings" style={shellStyle}><SettingsPanel settings={settings} clickThroughShortcutAvailable={clickThroughShortcutAvailable} onChange={changeSettings} onClose={() => setView("hud")} onDragStart={dragStart} onShortcutRecordingChange={setShortcutRecording} notices={errorNotices} /></main>;
 
   const captureButton = <button type="button" className="session-capture" title="Save a thought for later" aria-label="Save a thought for later" onClick={() => void openCapture()}><Icon name="capture" /></button>;
   const displayName = activePlan?.task || sessionName;
@@ -1367,7 +1379,7 @@ export default function App() {
         onBreak={() => startPhase("break")} onClose={closeCompletedSession}
       /> : completion && <div className="completion-backdrop"><div className="completion-card"><span>{completion.phase === "save-error" ? "!" : completion.phase === "break" ? "☕" : "✓"}</span><h2>{completion.title}</h2><p>{completion.body}</p><div>{completion.phase === "work" && <button className="primary-action" onClick={() => startPhase("break")}>Start {activePlan && nextBreak(activePlan).kind === "long" ? "long " : ""}break</button>}{completion.phase === "break" && <button className="primary-action" onClick={() => startPhase("work")}>Start focus</button>}{completion.phase === "save-error" && <button className="primary-action" onClick={() => { completionKeyRef.current = ""; setCompletion(null); setActivePlan((plan) => plan ? { ...plan } : null); }}>Retry save</button>}{(completion.phase === "work" || completion.phase === "break") && <button onClick={() => void closeCompletedSession().catch(() => {})}>End session</button>}</div></div></div>)}
       {statusNotice && <StatusToast key={statusNotice.id} text={statusNotice.text} onDismiss={dismissStatus} />}
-      {clickThroughNotice && <div className="notice">Click-through on · Ctrl + Alt + C to disable</div>}
+      {clickThroughNotice && <div className="notice" role="status">Click-through on · {clickThroughHint(settings.shortcuts.clickThrough, clickThroughShortcutAvailable)}</div>}
       {(shortcutError || databaseError) && <button className="error-notice" onClick={() => setView(databaseError && !autostartError ? "dashboard" : "settings")} title="View error details and recovery actions">{databaseError ? autostartError ? "Start on login unavailable" : snapshotError ? "Session recovery unavailable" : "History storage unavailable" : "Shortcuts unavailable"} · Review</button>}
     </section>
   </main>;

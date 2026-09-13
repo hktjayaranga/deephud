@@ -65,3 +65,10 @@ export function shortcutIdentity(shortcut: string): string {
 export function displayShortcut(shortcut: string): string {
   return shortcut ? shortcut.split("+").join(" + ") : "Not set";
 }
+
+export function clickThroughHint(shortcut: string, available: boolean): string {
+  const fallback = "Use the tray menu → Turn off click-through.";
+  if (!shortcut.trim()) return `No shortcut set. ${fallback}`;
+  if (!available) return `Shortcut unavailable. ${fallback}`;
+  return `${displayShortcut(shortcut)} to turn off click-through. ${fallback}`;
+}

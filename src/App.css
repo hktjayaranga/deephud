@@ -304,6 +304,7 @@ kbd { min-width: 23px; padding: 4px 5px; border: 1px solid var(--line); border-b
 .start-session { width: 100%; min-height: 50px; display: flex; flex-direction: column; align-items: center; justify-content: center; margin-top: 20px; border: 0; border-radius: 12px; background: var(--accent); color: #102018; cursor: pointer; box-shadow: 0 8px 24px rgba(var(--accent-rgb), .18); }
 .start-session span { font-size: 12px; font-weight: 750; }
 .start-session small { font-size: 8px; opacity: .72; }
+.start-session:disabled { opacity: .5; cursor: not-allowed; box-shadow: none; }
 
 .streak { flex: initial !important; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); font-size: 9px; }
 .dashboard-tabs { position: sticky; top: 78px; z-index: 4; display: flex; padding: 7px 18px 0; background: rgba(var(--bg), .94); }
@@ -349,6 +350,12 @@ kbd { min-width: 23px; padding: 4px 5px; border: 1px solid var(--line); border-b
 .data-actions { display: flex; gap: 5px; margin-bottom: 9px; }
 .data-actions button { flex: 1; padding: 6px 4px; border: 1px solid var(--line); border-radius: 7px; background: var(--button); color: var(--muted); font-size: 7px; cursor: pointer; }
 .data-actions button:hover { color: var(--text); border-color: rgba(var(--accent-rgb), .4); }
+.history-export { margin-bottom: 14px; }
+.history-export > label { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; color: var(--muted); font-size: 11px; }
+.history-export select { padding: 7px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--button); color: var(--text); }
+.history-export .data-actions { flex-wrap: wrap; }
+.history-export .data-actions button { flex: 1 1 180px; padding: 9px 8px; font-size: 11px; }
+.history-export .data-actions button:disabled { opacity: .5; cursor: not-allowed; }
 .data-actions .danger-action, .history-confirmation .danger-action { color: #f56e6e; border-color: rgba(245, 110, 110, .35); }
 .data-actions .danger-action:hover, .history-confirmation .danger-action:hover { color: #ff8a8a; border-color: rgba(245, 110, 110, .7); }
 .inline-error { margin-bottom: 8px; padding: 7px; border-radius: 7px; background: rgba(245, 110, 110, .1); color: #f56e6e; font-size: 8px; }

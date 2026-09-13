@@ -92,6 +92,14 @@ integration, alert, idle, goal, and shortcut settings.
 
 Completed work intervals are recorded; breaks do not inflate focus totals. The
 History page can search, filter, edit, delete, export, back up, and restore data.
+Choose CSV or JSON, then **Export filtered results** to export the current search,
+project, and local-date matches, or **Export all history** for every record.
+Export counts refer to individual focus intervals, including partial work.
+
+Under **Settings → Focus policy → When computer is idle**, choose **Keep counting**,
+**Pause** (resume manually), or **Pause and resume automatically** when input returns.
+The idle threshold applies to either pause option. Desktop idle checks run every
+15 seconds; time before the timer pauses remains counted.
 
 ### Monthly insights
 
@@ -210,6 +218,9 @@ HUD to change focus-audio controls.
 
 Every shortcut can be changed in Settings. If a combination is already owned
 by the desktop or another application, DeepHUD reports it as unavailable.
+Click-through instructions show the currently registered shortcut. If it is
+cleared or unavailable, use the system tray menu → **Turn off click-through**
+to restore mouse interaction. This also turns off the saved click-through setting.
 
 ## Data and privacy
 
