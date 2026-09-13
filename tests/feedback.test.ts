@@ -2,6 +2,8 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { HistoryList } from "../src/components/Dashboard";
+import DeleteDataDialog from "../src/components/DeleteDataDialog";
+import HistoryConfirmation from "../src/components/HistoryConfirmation";
 import ErrorNotice from "../src/components/ErrorNotice";
 import { groupSessions } from "../src/services/sessionHistory";
 
@@ -43,5 +45,30 @@ describe("error guidance", () => {
     expect(markup).toContain("Cannot open &lt;history&gt;");
     expect(onAction).not.toHaveBeenCalled();
     expect(onDismiss).not.toHaveBeenCalled();
+  });
+});
+
+
+describe("deletion scope disclosure", () => {
+  it("starts selective deletion with nothing checked and the destructive action disabled", () => {
+    const onConfirm = vi.fn();
+    const markup = renderToStaticMarkup(createElement(DeleteDataDialog, { onConfirm, onCancel: vi.fn() }));
+    expect(markup).toContain("Choose what to delete</h2>");
+    expect(markup.match(/type="checkbox"/g)).toHaveLength(5);
+    expect(markup).not.toContain('checked=""');
+    expect(markup).toContain('class="danger-action" disabled=""');
+    expect(markup).toContain("Nothing selected. No data will be deleted.");
+    expect(markup).toContain("Project and task suggestions");
+    expect(markup).toContain("Unchecked categories, settings, and audio recordings are kept");
+    expect(onConfirm).not.toHaveBeenCalled();
+  });
+
+  it("distinguishes a single interval deletion from deleting the task or resetting data", () => {
+    const markup = renderToStaticMarkup(createElement(HistoryConfirmation, { onConfirm: vi.fn(), onCancel: vi.fn() }));
+    expect(markup).toContain("Delete this focus interval?</h2>");
+    expect(markup).toContain("Delete interval</button>");
+    expect(markup).toContain("session progress will be recalculated");
+    expect(markup).toContain("Other intervals and the task itself are kept");
+    expect(markup).not.toContain("Delete history, tasks, thoughts");
   });
 });

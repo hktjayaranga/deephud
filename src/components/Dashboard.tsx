@@ -1,3 +1,6 @@
+import { MAX_FOCUS_MINUTES, splitFocusedDuration, validateFocusedDuration } from "../services/focusedDuration";
+import DeleteDataDialog from "./DeleteDataDialog";
+import { DeletionCategory } from "../services/dataDeletion";
 import { useEffect, useMemo, useState } from "react";
 import { SessionRecord } from "../services/database";
 import { groupSessions, WorkSession } from "../services/sessionHistory";
@@ -18,7 +21,7 @@ interface Props {
   onExport: (format: "csv" | "json", records: SessionRecord[]) => Promise<void>;
   onBackup: () => Promise<void>;
   onRestore: () => Promise<void>;
-  onResetDatabase: () => Promise<void>;
+  onDeleteData: (categories: DeletionCategory[]) => Promise<void>;
   onToday: () => void;
   onClose: () => void;
   onDragStart: () => void;
@@ -27,7 +30,7 @@ interface Props {
 
 export type DashboardTab = "overview" | "history" | "projects";
 
-export default function Dashboard({ tab, onTabChange, sessions, goalMinutes, onDelete, onUpdate, onExport, onBackup, onRestore, onResetDatabase, onToday, onClose, onDragStart, notices }: Props) {
+export default function Dashboard({ tab, onTabChange, sessions, goalMinutes, onDelete, onUpdate, onExport, onBackup, onRestore, onDeleteData, onToday, onClose, onDragStart, notices }: Props) {
   const [period, setPeriod] = useState<"week" | "month">("week");
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
   const [now, setNow] = useState(() => new Date());
@@ -43,6 +46,7 @@ export default function Dashboard({ tab, onTabChange, sessions, goalMinutes, onD
   const [projectFilter, setProjectFilter] = useState("");
   const [dateFilter, setDateFilter] = useState("");
   const [editing, setEditing] = useState<SessionRecord | null>(null);
+  const [deletionNotice, setDeletionNotice] = useState("");
   const [actionError, setActionError] = useState("");
   const [exportFormat, setExportFormat] = useState<"csv" | "json">("csv");
   const [deletion, setDeletion] = useState<{ id: number } | "all" | null>(null);
@@ -113,14 +117,15 @@ export default function Dashboard({ tab, onTabChange, sessions, goalMinutes, onD
           </div>
           <p className="insight-note">Each record is one focus interval. Filters apply only to filtered exports.</p>
         </div>
-        <div className="data-actions"><button onClick={() => run(onBackup)}>Backup</button><button onClick={() => run(onRestore)}>Restore</button><button className="danger-action" onClick={() => setDeletion("all")}>Reset database</button></div>
+        <div className="data-actions"><button onClick={() => run(onBackup)}>Backup</button><button onClick={() => run(onRestore)}>Restore</button><button className="danger-action" onClick={() => { setDeletionNotice(""); setDeletion("all"); }}>Delete data…</button></div>
+        {deletionNotice && <p className="queue-notice" role="status">{deletionNotice}</p>}
         {actionError && <p className="inline-error">{actionError}</p>}
         <HistoryList sessions={filteredSessions} onDelete={requestDelete} onEdit={setEditing} onClearFilters={hasFilters ? clearFilters : undefined} />
       </section>}
       {tab === "projects" && <section className="dashboard-section dashboard-section--flush"><div className="section-title"><h2>Projects</h2><span>All time</span></div><div className="project-list">{stats.projects.length ? stats.projects.map((project) => <div key={project.name} className="project-row"><div><b>{project.name}</b><span>{project.tasks.map((task) => `${task.name} · ${formatDuration(task.seconds)}`).join("  ·  ")}</span></div><strong>{formatDuration(project.seconds)}</strong></div>) : <EmptyState />}</div></section>}
     </div>
     {editing && <EditSession session={editing} onCancel={() => setEditing(null)} onSave={(session) => run(async () => { await onUpdate(session); setEditing(null); })} />}
-    {deletion !== null && <HistoryConfirmation reset={deletion === "all"} onCancel={() => setDeletion(null)} onConfirm={() => deletion === "all" ? onResetDatabase() : onDelete(deletion.id)} />}
+    {deletion === "all" ? <DeleteDataDialog onCancel={() => setDeletion(null)} onConfirm={async categories => { await onDeleteData(categories); setDeletionNotice("Selected data deleted. Unchecked categories were kept."); }} /> : deletion !== null && <HistoryConfirmation onCancel={() => setDeletion(null)} onConfirm={() => onDelete(deletion.id)} />}
   </section>;
 }
 
@@ -145,7 +150,7 @@ export function HistoryList({ sessions, onDelete, onEdit, onClearFilters }: { se
           {task.cycles.map((cycle, index) => <article key={cycle.id ?? index}>
             <SessionTime startedAt={cycle.startedAt} endedAt={cycle.endedAt} />
             <div><b>{cycle.sessionKind === "pomodoro" ? "Focus cycle" : cycle.sessionKind === "stopwatch" ? "Stopwatch" : "Deep work"}</b><span>{formatDuration(cycle.focusSeconds)} focused{cycle.cycleCompleted === false ? " · Ended early" : ""}</span></div>
-            <div className="history-actions">{onEdit && <button onClick={() => onEdit(cycle)} aria-label="Edit interval">Edit</button>}{cycle.id != null && <button onClick={() => onDelete(cycle.id!)} aria-label="Delete interval">×</button>}</div>
+            <div className="history-actions">{onEdit && <button onClick={() => onEdit(cycle)} aria-label="Edit interval">Edit</button>}{cycle.id != null && <button onClick={() => onDelete(cycle.id!)} aria-label="Delete interval" title="Delete this focus interval"><span className="history-delete-icon" aria-hidden="true">×</span></button>}</div>
           </article>)}
         </section>)}
       </details>
@@ -161,9 +166,32 @@ function SessionTime({ startedAt, endedAt }: { startedAt: string; endedAt: strin
   return <time dateTime={startedAt}>{date(start)}<small>{time(start)} – {localDateKey(start) !== localDateKey(end) && `${date(end)} `}{time(end)}</small></time>;
 }
 
-function EditSession({ session, onCancel, onSave }: { session: SessionRecord; onCancel: () => void; onSave: (session: SessionRecord) => void }) {
+export function EditSession({ session, onCancel, onSave }: { session: SessionRecord; onCancel: () => void; onSave: (session: SessionRecord) => void }) {
   const [draft, setDraft] = useState(session);
-  return <div className="completion-backdrop"><form className="edit-session" onSubmit={(event) => { event.preventDefault(); onSave(draft); }}><h2>Edit session</h2><div className="edit-grid"><label>Project<input value={draft.project} onChange={(event) => setDraft({ ...draft, project: event.target.value })} /></label><label>Task<input value={draft.task} onChange={(event) => setDraft({ ...draft, task: event.target.value })} /></label><label>Started<input type="datetime-local" value={toDateTimeInput(draft.startedAt)} onChange={(event) => setDraft({ ...draft, startedAt: new Date(event.target.value).toISOString() })} /></label><label>Ended<input type="datetime-local" value={toDateTimeInput(draft.endedAt)} onChange={(event) => setDraft({ ...draft, endedAt: new Date(event.target.value).toISOString() })} /></label><label>Focused minutes<input type="number" min="1" value={Math.round(draft.focusSeconds / 60)} onChange={(event) => setDraft({ ...draft, focusSeconds: Math.max(60, Number(event.target.value) * 60) })} /></label><label>Type<select value={draft.sessionKind} onChange={(event) => setDraft({ ...draft, sessionKind: event.target.value as SessionRecord["sessionKind"] })}><option value="deep-work">Deep Work</option><option value="pomodoro">Pomodoro</option><option value="stopwatch">Stopwatch</option></select></label></div><div className="edit-actions"><button type="button" onClick={onCancel}>Cancel</button><button className="primary-action" type="submit">Save changes</button></div></form></div>;
+  const [focusedTime, setFocusedTime] = useState(() => splitFocusedDuration(session.focusSeconds));
+  const duration = validateFocusedDuration(focusedTime.minutes, focusedTime.seconds);
+  return <div className="completion-backdrop"><form className="edit-session" onSubmit={(event) => {
+    event.preventDefault();
+    if (duration.valid) onSave({ ...draft, focusSeconds: duration.focusSeconds });
+  }}>
+    <h2>Edit session</h2>
+    <div className="edit-grid">
+      <label>Project<input value={draft.project} onChange={(event) => setDraft({ ...draft, project: event.target.value })} /></label>
+      <label>Task<input value={draft.task} onChange={(event) => setDraft({ ...draft, task: event.target.value })} /></label>
+      <label>Started<input type="datetime-local" value={toDateTimeInput(draft.startedAt)} onChange={(event) => setDraft({ ...draft, startedAt: new Date(event.target.value).toISOString() })} /></label>
+      <label>Ended<input type="datetime-local" value={toDateTimeInput(draft.endedAt)} onChange={(event) => setDraft({ ...draft, endedAt: new Date(event.target.value).toISOString() })} /></label>
+      <fieldset className="edit-focused-time" aria-describedby={!duration.valid ? "focused-time-error" : undefined}>
+        <legend>Focused time</legend>
+        <div>
+          <label>Minutes<input aria-label="Focused minutes" type="number" min="0" max={MAX_FOCUS_MINUTES} step="1" required value={focusedTime.minutes} aria-invalid={!duration.valid} onChange={(event) => setFocusedTime({ ...focusedTime, minutes: event.target.value })} /></label>
+          <label>Seconds<input aria-label="Focused seconds" type="number" min="0" max="59" step="1" required value={focusedTime.seconds} aria-invalid={!duration.valid} onChange={(event) => setFocusedTime({ ...focusedTime, seconds: event.target.value })} /></label>
+        </div>
+        {!duration.valid && <p id="focused-time-error" className="inline-error" role="alert">{duration.error}</p>}
+      </fieldset>
+      <label>Type<select value={draft.sessionKind} onChange={(event) => setDraft({ ...draft, sessionKind: event.target.value as SessionRecord["sessionKind"] })}><option value="deep-work">Deep Work</option><option value="pomodoro">Pomodoro</option><option value="stopwatch">Stopwatch</option></select></label>
+    </div>
+    <div className="edit-actions"><button type="button" onClick={onCancel}>Cancel</button><button className="primary-action" type="submit" disabled={!duration.valid}>Save changes</button></div>
+  </form></div>;
 }
 
 function EmptyState() { return <div className="empty-state"><b>No focus sessions yet</b><span>Complete a session and it will appear here.</span></div>; }

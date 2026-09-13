@@ -251,36 +251,68 @@ pub async fn delete_session(instances: State<'_, DbInstances>, id: i64) -> Resul
         .map_err(|error| error.to_string())
 }
 
-#[tauri::command]
-pub async fn reset_database(instances: State<'_, DbInstances>) -> Result<(), String> {
-    let pool = sqlite_pool(&instances).await?;
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum DeletionCategory {
+    History,
+    Queue,
+    Thoughts,
+    Schedules,
+    Suggestions,
+}
+
+async fn delete_selected_data(
+    pool: &SqlitePool,
+    categories: &[DeletionCategory],
+) -> Result<(), String> {
+    if categories.is_empty() {
+        return Err("Select at least one data category to delete".into());
+    }
     let mut transaction = pool.begin().await.map_err(|error| error.to_string())?;
-    crate::schedules::write_data(&mut transaction, &crate::schedules::ScheduleData::default())
-        .await?;
-    sqlx::query("DELETE FROM distraction_captures")
-        .execute(&mut *transaction)
-        .await
-        .map_err(|error| error.to_string())?;
-    sqlx::query("DELETE FROM daily_queue_items")
-        .execute(&mut *transaction)
-        .await
-        .map_err(|error| error.to_string())?;
-    sqlx::query("DELETE FROM tasks")
-        .execute(&mut *transaction)
-        .await
-        .map_err(|error| error.to_string())?;
-    sqlx::query("DELETE FROM sessions")
-        .execute(&mut *transaction)
-        .await
-        .map_err(|error| error.to_string())?;
-    sqlx::query("DELETE FROM projects")
-        .execute(&mut *transaction)
-        .await
-        .map_err(|error| error.to_string())?;
+    for category in categories {
+        let tables: &[&str] = match category {
+            DeletionCategory::History => &["sessions"],
+            DeletionCategory::Queue => &["daily_queue_items"],
+            DeletionCategory::Thoughts => &["distraction_captures"],
+            DeletionCategory::Schedules => &["schedule_occurrences", "focus_schedules"],
+            DeletionCategory::Suggestions => &["tasks", "projects"],
+        };
+        for table in tables {
+            sqlx::query(&format!("DELETE FROM {table}"))
+                .execute(&mut *transaction)
+                .await
+                .map_err(|error| error.to_string())?;
+        }
+    }
     transaction
         .commit()
         .await
         .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn delete_data(
+    instances: State<'_, DbInstances>,
+    categories: Vec<DeletionCategory>,
+) -> Result<(), String> {
+    let pool = sqlite_pool(&instances).await?;
+    delete_selected_data(&pool, &categories).await
+}
+
+#[tauri::command]
+pub async fn reset_database(instances: State<'_, DbInstances>) -> Result<(), String> {
+    let pool = sqlite_pool(&instances).await?;
+    delete_selected_data(
+        &pool,
+        &[
+            DeletionCategory::History,
+            DeletionCategory::Queue,
+            DeletionCategory::Thoughts,
+            DeletionCategory::Schedules,
+            DeletionCategory::Suggestions,
+        ],
+    )
+    .await
 }
 
 #[tauri::command]
@@ -940,6 +972,97 @@ mod capture_tests {
                 .await
                 .unwrap();
             assert_eq!(count, 1);
+        });
+    }
+}
+
+#[cfg(test)]
+mod deletion_tests {
+    use super::*;
+
+    async fn seeded_database() -> SqlitePool {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        for migration in crate::database_migrations() {
+            sqlx::raw_sql(migration.sql).execute(&pool).await.unwrap();
+        }
+        sqlx::raw_sql("INSERT INTO sessions (started_at, ended_at, planned_minutes, focus_seconds, paused_seconds, project, task, session_kind, queue_item_id) VALUES ('2026-09-01', '2026-09-01', 25, 1500, 0, 'Project', 'Task', 'deep-work', 'queue-a');
+            INSERT INTO projects (id, name, created_at) VALUES (1, 'Project', '2026-09-01');
+            INSERT INTO tasks (project_id, name, created_at) VALUES (1, 'Task', '2026-09-01');
+            INSERT INTO daily_queue_items VALUES ('queue-a', '2026-09-01', 'Task', 'Project', 0, 1, 25, 'deep-work', NULL);
+            INSERT INTO distraction_captures (id, text, created_at, converted_queue_item_id) VALUES ('thought-a', 'Thought', '2026-09-01', 'queue-a');
+            INSERT INTO focus_schedules VALUES ('schedule-a', '{}');
+            INSERT INTO schedule_occurrences VALUES ('reminder-a', 'schedule-a', '2026-09-01', 'pending', '{}');")
+            .execute(&pool).await.unwrap();
+        pool
+    }
+
+    #[test]
+    fn selected_deletion_preserves_unselected_tables_for_every_combination() {
+        tauri::async_runtime::block_on(async {
+            let categories = [
+                DeletionCategory::History,
+                DeletionCategory::Queue,
+                DeletionCategory::Thoughts,
+                DeletionCategory::Schedules,
+                DeletionCategory::Suggestions,
+            ];
+            let tables = [
+                ("sessions", 0),
+                ("daily_queue_items", 1),
+                ("distraction_captures", 2),
+                ("focus_schedules", 3),
+                ("schedule_occurrences", 3),
+                ("projects", 4),
+                ("tasks", 4),
+            ];
+            for mask in 1..32 {
+                let pool = seeded_database().await;
+                let selected: Vec<_> = categories
+                    .iter()
+                    .enumerate()
+                    .filter(|(index, _)| mask & (1 << index) != 0)
+                    .map(|(_, category)| *category)
+                    .collect();
+                delete_selected_data(&pool, &selected).await.unwrap();
+                for (table, index) in tables {
+                    let count: i64 = sqlx::query_scalar(&format!("SELECT COUNT(*) FROM {table}"))
+                        .fetch_one(&pool)
+                        .await
+                        .unwrap();
+                    assert_eq!(
+                        count,
+                        if mask & (1 << index) != 0 { 0 } else { 1 },
+                        "mask {mask}, table {table}"
+                    );
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn selected_deletion_rejects_empty_and_rolls_back_failed_deletions() {
+        tauri::async_runtime::block_on(async {
+            let pool = seeded_database().await;
+            assert!(delete_selected_data(&pool, &[]).await.is_err());
+            assert!(serde_json::from_str::<Vec<DeletionCategory>>("[\"unknown\"]").is_err());
+            sqlx::raw_sql("CREATE TRIGGER fail_queue_delete BEFORE DELETE ON daily_queue_items BEGIN SELECT RAISE(ABORT, 'disk error'); END;").execute(&pool).await.unwrap();
+            assert!(delete_selected_data(
+                &pool,
+                &[DeletionCategory::History, DeletionCategory::Queue]
+            )
+            .await
+            .is_err());
+            for table in ["sessions", "daily_queue_items"] {
+                let count: i64 = sqlx::query_scalar(&format!("SELECT COUNT(*) FROM {table}"))
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap();
+                assert_eq!(count, 1);
+            }
         });
     }
 }

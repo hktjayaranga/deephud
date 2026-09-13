@@ -1,3 +1,4 @@
+import DeletionConfirmation from "./components/DeletionConfirmation";
 import ScheduleWorkspace from "./components/schedules/ScheduleWorkspace";
 import SchedulePreview from "./components/schedules/SchedulePreview";
 import ScheduleReminder from "./components/schedules/ScheduleReminder";
@@ -26,7 +27,7 @@ import { DailyQueueItem, getQueue, localDay, nextQueueItem, normalizeQueue, queu
 import Dashboard, { DashboardTab } from "./components/Dashboard";
 import SessionLauncher from "./components/SessionLauncher";
 import SettingsPanel from "./components/SettingsPanel";
-import { ProjectRecord, SessionRecord, deleteSession, ensureProjectTask, getProjects, getSessions, initializeDatabase, replaceSessions, resetDatabase, saveSession, updateSession } from "./services/database";
+import { ProjectRecord, SessionRecord, deleteSession, ensureProjectTask, getProjects, getSessions, initializeDatabase, replaceSessions, deleteData, saveSession, updateSession } from "./services/database";
 import { createBackup, exportSessions, selectBackup } from "./services/dataTransfer";
 import { FOCUS_AUDIO_EXTENSIONS, RECORDED_FOCUS_PRESETS, UserAudioRecording, importUserAudioRecording, isSupportedRecording, loadFocusAudioPreference, loadUserAudioLibrary, removeUserAudioRecording, renameUserAudioRecording, resolveFocusAudio, saveFocusAudioPreference, saveFocusAudioVolume, toFocusAudioTrack } from "./services/focusAudio";
 import { notify } from "./services/notifications";
@@ -71,6 +72,7 @@ function isSameFocusAudioTrack(left?: FocusAudioTrack | null, right?: FocusAudio
 }
 
 export default function App() {
+  const [deletingRecording, setDeletingRecording] = useState<UserAudioRecording | null>(null);
   const [settings, setSettings] = useState<Settings>(loadSettings);
   const [state, setState] = useState<TimerState>(() => initialTimerState(settings.defaultMode, settings.defaultDuration));
   const [sessionName, setSessionName] = useState(() => localStorage.getItem("deepwork-hud:session") ?? "");
@@ -324,7 +326,7 @@ export default function App() {
 
   const discardRecovery = async () => {
     if (!recovery || recoveryBusy) return;
-    if (!window.confirm("Discard this unfinished interval? Previously saved cycles will stay in history.")) return;
+    if (!window.confirm("Permanently discard this unfinished interval without saving its focused time? Previously saved intervals and queued tasks are kept. This cannot be undone.")) return;
     setRecoveryBusy(true);
     try {
       const records = (await getSessions()).filter((record) => record.workSessionId === recovery.plan.workSessionId);
@@ -1116,15 +1118,12 @@ export default function App() {
   };
 
   const removeActiveRecording = async (recording: UserAudioRecording) => {
-    if (!window.confirm(`Remove “${recording.name}” from DeepHUD? The original file will not be affected.`)) return;
     try {
       setFocusAudioLibraryBusy(true);
       const wasSelected = effectiveFocusAudio?.track.libraryId === recording.id;
       const recordings = await removeUserAudioRecording(recording);
       setUserAudioRecordings(recordings);
       if (wasSelected) selectFocusAudioTrack(null);
-    } catch (error) {
-      setFocusAudioError(`Unable to remove this recording: ${String(error)}`);
     } finally {
       setFocusAudioLibraryBusy(false);
     }
@@ -1252,7 +1251,7 @@ export default function App() {
     onRestore={async () => {
       if (activePlan) throw new Error("End & save the current session before restoring a backup.");
       const backup = await selectBackup();
-      if (!backup || !await confirm(`Replace current history and task queue with ${backup.sessions.length} backed-up sessions and ${(backup.queueItems ?? []).length} queue items and ${(backup.captures ?? []).length} saved thoughts, ${(backup.focusSchedules?.schedules ?? []).length} schedules, and restore all backed-up settings? This can change autostart, shortcuts, and click-through behavior.`, { title: "Restore history and settings", kind: "warning" })) return;
+      if (!backup || !await confirm(`Replace current history, queued tasks, saved thoughts, schedules, and reminder history with this backup? This is a replacement, not a merge. Data absent from the backup will be removed. The backup contains ${backup.sessions.length} backed-up sessions and ${(backup.queueItems ?? []).length} queue items and ${(backup.captures ?? []).length} saved thoughts, ${(backup.focusSchedules?.schedules ?? []).length} schedules. Backed-up settings will also be restored; this can change autostart, shortcuts, and click-through behavior.`, { title: "Replace saved data and restore settings?", kind: "warning", okLabel: "Replace data and restore settings", cancelLabel: "Cancel" })) return;
       await replaceSessions(backup.sessions, backup.queueItems ?? [], backup.captures ?? [], backup.focusSchedules ?? { schedules: [], occurrences: [] });
       await scheduleStore.refresh();
       setCaptures(backup.captures ?? []); setCapturesReady(true);
@@ -1261,14 +1260,18 @@ export default function App() {
       setSettings((previous) => ({ ...previous, ...backup.settings, shortcuts: { ...previous.shortcuts, ...backup.settings.shortcuts } }));
       await refreshSessions();
     }}
-    onResetDatabase={async () => {
-      if (activePlan) throw new Error("End & save the current session before resetting the database.");
-      await resetDatabase();
-      await scheduleStore.refresh();
-      setCaptures([]); setCapturesReady(true);
-      setQueueItems([]);
-      setQueueReady(true);
-      await refreshSessions();
+    onDeleteData={async (categories) => {
+      if (activePlan) throw new Error("End & save the current session before deleting saved data.");
+      await deleteData(categories);
+      if (categories.includes("thoughts")) { setCaptures([]); setCapturesReady(true); }
+      if (categories.includes("queue")) { setQueueItems([]); setQueueReady(true); }
+      if (categories.includes("history")) setSessions([]);
+      if (categories.includes("suggestions")) setProjects([]);
+      // Deletion has committed. A reload failure must not invite a second deletion.
+      await Promise.all([
+        refreshSessions(),
+        categories.includes("schedules") ? scheduleStore.refresh().catch(error => setDatabaseError(`Selected data was deleted, but schedules could not reload: ${String(error)}`)) : Promise.resolve(),
+      ]);
     }}
     onClose={() => setView("hud")}
     onDragStart={dragStart}
@@ -1343,7 +1346,7 @@ export default function App() {
               const selected = effectiveFocusAudio?.track.libraryId === recording.id;
               return <div className="hud-audio-user" key={recording.id}>
                 <button type="button" title={recording.name} className={`hud-audio-user__select ${selected ? "is-active" : ""} ${selected && focusAudioPreviewing ? "is-previewing" : ""}`} onClick={() => selectFocusAudioTrack(track)}>{recording.name}</button>
-                <button type="button" className="hud-audio-user__remove" title={`Remove ${recording.name}`} aria-label={`Remove ${recording.name}`} disabled={focusAudioLibraryBusy} onClick={() => void removeActiveRecording(recording)}>×</button>
+                <button type="button" className="hud-audio-user__remove" title={`Delete recording: ${recording.name}`} aria-label={`Delete recording: ${recording.name}`} disabled={focusAudioLibraryBusy} onClick={() => setDeletingRecording(recording)}>×</button>
               </div>;
             })}
           </div>
@@ -1378,6 +1381,9 @@ export default function App() {
         onNext={async () => { const item = nextQueueItem(queueItems, activePlan.queueItemId, localDay()); if (item) await startQueueTask(item, true); }}
         onBreak={() => startPhase("break")} onClose={closeCompletedSession}
       /> : completion && <div className="completion-backdrop"><div className="completion-card"><span>{completion.phase === "save-error" ? "!" : completion.phase === "break" ? "☕" : "✓"}</span><h2>{completion.title}</h2><p>{completion.body}</p><div>{completion.phase === "work" && <button className="primary-action" onClick={() => startPhase("break")}>Start {activePlan && nextBreak(activePlan).kind === "long" ? "long " : ""}break</button>}{completion.phase === "break" && <button className="primary-action" onClick={() => startPhase("work")}>Start focus</button>}{completion.phase === "save-error" && <button className="primary-action" onClick={() => { completionKeyRef.current = ""; setCompletion(null); setActivePlan((plan) => plan ? { ...plan } : null); }}>Retry save</button>}{(completion.phase === "work" || completion.phase === "break") && <button onClick={() => void closeCompletedSession().catch(() => {})}>End session</button>}</div></div></div>)}
+      {deletingRecording && <DeletionConfirmation title="Delete this recording from DeepHUD?" confirmLabel="Delete recording" errorMessage="Could not delete this recording."
+        description={<><p className="deletion-target">{deletingRecording.name}</p><p>This permanently deletes DeepHUD’s imported copy from your audio library. If selected, focus audio switches to Silence. Your original file is kept and can be imported again.</p></>}
+        onCancel={() => setDeletingRecording(null)} onConfirm={() => removeActiveRecording(deletingRecording)} />}
       {statusNotice && <StatusToast key={statusNotice.id} text={statusNotice.text} onDismiss={dismissStatus} />}
       {clickThroughNotice && <div className="notice" role="status">Click-through on · {clickThroughHint(settings.shortcuts.clickThrough, clickThroughShortcutAvailable)}</div>}
       {(shortcutError || databaseError) && <button className="error-notice" onClick={() => setView(databaseError && !autostartError ? "dashboard" : "settings")} title="View error details and recovery actions">{databaseError ? autostartError ? "Start on login unavailable" : snapshotError ? "Session recovery unavailable" : "History storage unavailable" : "Shortcuts unavailable"} · Review</button>}

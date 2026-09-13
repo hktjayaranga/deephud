@@ -96,6 +96,16 @@ Choose CSV or JSON, then **Export filtered results** to export the current searc
 project, and local-date matches, or **Export all history** for every record.
 Export counts refer to individual focus intervals, including partial work.
 
+Use **History → Delete data…** to choose which categories to remove: focus
+history, queued tasks, saved thoughts, schedules and reminders, or project/task
+suggestions. Nothing is selected by default. The dialog summarizes the checked
+categories before **Delete selected categories**; deletion includes all dates,
+regardless of history filters. Unchecked categories, settings, and audio recordings
+are kept. Deleting history resets focus totals and linked task session progress;
+deleting suggestions keeps project/task names on existing records. Individual
+interval, task, thought, schedule, and recording deletes remain available.
+
+
 Under **Settings → Focus policy → When computer is idle**, choose **Keep counting**,
 **Pause** (resume manually), or **Pause and resume automatically** when input returns.
 The idle threshold applies to either pause option. Desktop idle checks run every

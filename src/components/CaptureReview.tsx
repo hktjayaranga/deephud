@@ -1,3 +1,4 @@
+import DeletionConfirmation from "./DeletionConfirmation";
 import { useRef, useState } from "react";
 import { ProjectRecord } from "../services/database";
 import { DailyQueueItem, localDay } from "../services/taskQueue";
@@ -14,6 +15,7 @@ interface Props {
   onConvert: (capture: DistractionCapture, task: DailyQueueItem) => Promise<void>;
 }
 export default function CaptureReview({ captures, projects, defaultMinutes, ready, onUpdate, onDelete, onConvert }: Props) {
+  const [deleting, setDeleting] = useState<DistractionCapture | null>(null);
   const [conversion, setConversion] = useState<{ capture: DistractionCapture; task: DailyQueueItem } | null>(null);
   const [busy, setBusy] = useState(false);
   const pending = useRef(false);
@@ -36,7 +38,7 @@ export default function CaptureReview({ captures, projects, defaultMinutes, read
         <button type="button" disabled={busy || !ready} onClick={() => void run(() => onUpdate({ ...capture, handledAt: capture.handledAt ? null : new Date().toISOString() }), capture.handledAt ? "Thought reopened" : "Marked handled")}>{capture.handledAt ? "Reopen" : "Mark handled"}</button>
         {!capture.handledAt && <><button type="button" disabled={busy || !ready} onClick={() => { setConversion({ capture, task: captureTask(capture.text, defaultMinutes) }); setError(""); }}>Add to Today</button><button type="button" disabled={busy} onClick={() => { setDeferred((ids) => [...ids, capture.id]); setNotice("Kept for later. This thought will appear when you reopen the list."); }}>Keep for later</button></>}
       </>}
-      <button type="button" className="danger-action" disabled={busy || !ready} onClick={() => { if (window.confirm("Delete this saved thought? Any task created from it will be kept.")) void run(() => onDelete(capture.id), "Thought deleted"); }}>Delete</button>
+      <button type="button" className="danger-action" disabled={busy || !ready} onClick={() => setDeleting(capture)}>Delete thought</button>
     </div>
   </article>;
   return <section className="capture-review" aria-labelledby="saved-thoughts-title">
@@ -50,5 +52,8 @@ export default function CaptureReview({ captures, projects, defaultMinutes, read
         {ready && !unhandled.length && <div className="empty-state"><b>No thoughts to review right now</b><span>{deferred.length ? "Your deferred thoughts are still saved for later." : "Capture a thought beside the session name or use your shortcut."}</span></div>}
         {handled.length > 0 && <details className="queue-section"><summary>Handled · {handled.length}</summary><div className="queue-list">{handled.map(card)}</div></details>}
       </>}
+    {deleting && <DeletionConfirmation title="Delete this saved thought?" confirmLabel="Delete thought" errorMessage="Could not delete this thought."
+      description={<><p className="deletion-target">{deleting.text}</p><p>This permanently deletes this saved thought. Any task created from it and its focus history are kept. This cannot be undone.</p></>}
+      onCancel={() => setDeleting(null)} onConfirm={async () => { await onDelete(deleting.id); setNotice("Thought deleted. Queued tasks kept."); }} />}
   </section>;
 }

@@ -344,7 +344,8 @@ kbd { min-width: 23px; padding: 4px 5px; border: 1px solid var(--line); border-b
 .history-list article > div span { color: var(--muted); font-size: 8px; }
 .history-list article button { border: 0; background: transparent; color: var(--muted); cursor: pointer; }
 .history-actions { display: flex !important; flex-direction: row !important; align-items: center; gap: 4px; }
-.history-actions button:first-child { padding: 3px 5px; border: 1px solid var(--line); border-radius: 5px; font-size: 7px; }
+.history-list .history-actions button { padding: 3px 5px; border: 1px solid var(--line); border-radius: 5px; font-size: 7px; }
+.history-list .history-actions .history-delete-icon { display: inline-block; font-size: inherit; transform: scale(1.7); }
 .history-filters { display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: 6px; margin-bottom: 7px; }
 .history-filters input, .history-filters select { min-width: 0; width: 100%; padding: 7px 8px; border: 1px solid var(--line); border-radius: 8px; outline: 0; background: var(--button); color: var(--text); font-size: 8px; }
 .data-actions { display: flex; gap: 5px; margin-bottom: 9px; }
@@ -614,3 +615,24 @@ kbd { min-width: 23px; padding: 4px 5px; border: 1px solid var(--line); border-b
 .today-saved-shortcut { margin-bottom: 14px; }
 .saved-thoughts-workspace .workspace__header h1 { overflow-wrap: anywhere; }
 .saved-thoughts-count { position: absolute; top: -3px; right: -5px; min-width: 14px; padding: 1px 3px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-raised); color: var(--muted); font-size: 8px; line-height: 12px; text-align: center; font-variant-numeric: tabular-nums; pointer-events: none; }
+
+/* Keep deletion scope readable even for long task names and narrow windows. */
+.history-confirmation .deletion-description { display: block; text-align: left; }
+.deletion-description ul { margin: 8px 0 12px; padding-left: 20px; color: var(--muted); font-size: 11px; line-height: 1.6; }
+.history-confirmation .deletion-description p { max-width: none; font-size: 11px; }
+.history-confirmation .deletion-target { color: var(--text); overflow-wrap: anywhere; white-space: pre-wrap; max-height: 100px; overflow: auto; }
+.history-confirmation > div:last-child { flex-wrap: wrap; }
+.history-confirmation button { max-width: 100%; overflow-wrap: anywhere; }
+.schedule-actions .danger-action { color: #f56e6e; border-color: rgba(245, 110, 110, .35); background: var(--button); }
+
+.history-confirmation .deletion-description { min-width: 0; border: 0; padding: 0; }
+.deletion-options { display: grid; gap: 12px; margin: 14px 0; }
+.deletion-options label { display: flex; align-items: flex-start; gap: 9px; cursor: pointer; }
+.deletion-options input { margin-top: 3px; accent-color: var(--accent); flex-shrink: 0; }
+.deletion-options b { display: block; color: var(--text); font-size: 12px; }
+.deletion-options small { display: block; margin-top: 3px; color: var(--muted); font-size: 10px; line-height: 1.5; }
+
+.edit-focused-time { grid-column: 1 / -1; border: 0; min-width: 0; }
+.edit-focused-time legend { margin-bottom: 5px; color: var(--muted); font-size: 8px; }
+.edit-focused-time > div { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.edit-actions button:disabled { opacity: .5; cursor: not-allowed; }

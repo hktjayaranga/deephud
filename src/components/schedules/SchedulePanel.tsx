@@ -1,3 +1,4 @@
+import DeletionConfirmation from "../DeletionConfirmation";
 import { useRef, useState } from "react";
 import { ProjectRecord } from "../../services/database";
 import { FocusSchedule, validateSchedule } from "../../services/schedules";
@@ -11,7 +12,7 @@ export default function SchedulePanel({ schedules, settings, projects, ready, on
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
   const [error, setError] = useState("");
-  const [deleting, setDeleting] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<FocusSchedule | null>(null);
   const run = async (action: () => Promise<void>) => { if (busyRef.current) return; busyRef.current = true; setBusy(true); setError(""); try { await action(); } catch (e) { setError(String(e)); } finally { busyRef.current = false; setBusy(false); } };
   const add = () => setEditing({ id: crypto.randomUUID(), title: "", project: "", weekdays: [1,2,3,4,5], time: "09:00", kind: "deep-work", workMinutes: 50, breakMinutes: settings.pomodoroBreakMinutes, longBreakMinutes: Math.max(settings.pomodoroBreakMinutes + 1, settings.longBreakMinutes), cyclesBeforeLongBreak: settings.cyclesBeforeLongBreak, enabled: true, updatedAt: new Date().toISOString() });
   return <section className="dashboard-section schedule-panel">
@@ -39,7 +40,10 @@ export default function SchedulePanel({ schedules, settings, projects, ready, on
       <p>{days.filter(d => s.weekdays.includes(d.id)).map(d => d.name).join(" · ")} · <b>{s.time}</b></p>
       <p>{s.kind === "pomodoro" ? "Focus intervals" : "Deep Work"} · {s.workMinutes} min{s.project ? ` · ${s.project}` : ""}</p>
       {s.kind === "pomodoro" && <p>{s.breakMinutes} min break · {s.longBreakMinutes} min long break every {s.cyclesBeforeLongBreak} cycles</p>}
-      <div className="schedule-actions">{deleting === s.id ? <><span>Delete this schedule?</span><button type="button" disabled={busy} onClick={() => setDeleting(null)}>Cancel</button><button type="button" disabled={busy} onClick={() => void run(async () => { await onDelete(s.id); setDeleting(null); if (editing?.id === s.id) setEditing(null); })}>Delete</button></> : <><button type="button" disabled={busy || !!editing} onClick={() => { setEditing({ ...s, weekdays: [...s.weekdays] }); setError(""); }}>Edit</button><button type="button" disabled={busy} onClick={() => setDeleting(s.id)}>Delete</button></>}</div>
+      <div className="schedule-actions"><button type="button" disabled={busy || !!editing} onClick={() => { setEditing({ ...s, weekdays: [...s.weekdays] }); setError(""); }}>Edit</button><button type="button" className="danger-action" disabled={busy} onClick={() => setDeleting(s)}>Delete schedule</button></div>
     </article>)}
+    {deleting && <DeletionConfirmation title="Delete this schedule and cancel its reminders?" confirmLabel="Delete schedule" errorMessage="Could not delete this schedule."
+      description={<><p className="deletion-target">{deleting.title}</p><p>This permanently deletes this recurring schedule and cancels its pending and deferred reminders. Existing focus sessions and reminder history are kept. This cannot be undone.</p></>}
+      onCancel={() => setDeleting(null)} onConfirm={async () => { await onDelete(deleting.id); if (editing?.id === deleting.id) setEditing(null); }} />}
   </section>;
 }

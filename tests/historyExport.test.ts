@@ -68,7 +68,7 @@ function renderHistory(sessions: SessionRecord[]) {
   return renderToStaticMarkup(createElement(Dashboard, {
     tab: "history", onTabChange: vi.fn(), sessions, goalMinutes: 240,
     onDelete: vi.fn(), onUpdate: vi.fn(), onExport: vi.fn(), onBackup: vi.fn(),
-    onRestore: vi.fn(), onResetDatabase: vi.fn(), onToday: vi.fn(), onClose: vi.fn(), onDragStart: vi.fn(),
+    onRestore: vi.fn(), onDeleteData: vi.fn(), onToday: vi.fn(), onClose: vi.fn(), onDragStart: vi.fn(),
   }));
 }
 

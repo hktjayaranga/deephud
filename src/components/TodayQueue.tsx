@@ -1,3 +1,4 @@
+import DeletionConfirmation from "./DeletionConfirmation";
 import { useRef, useState } from "react";
 import { ProjectRecord, SessionRecord } from "../services/database";
 import { DailyQueueItem, MAX_QUEUE_ITEMS, moveQueueItem, orderedQueue, queueProgress } from "../services/taskQueue";
@@ -23,6 +24,7 @@ interface Props {
 }
 
 export default function TodayQueue({ items, sessions, projects, today, activeId, canStart, ready, defaultMinutes, onChange, onStart, onClose, onDragStart, notices, schedule, onSavedThoughts, pendingThoughtCount }: Props) {
+  const [deleting, setDeleting] = useState<DailyQueueItem | null>(null);
   const [editing, setEditing] = useState<DailyQueueItem | null>(null);
   const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -58,9 +60,7 @@ export default function TodayQueue({ items, sessions, projects, today, activeId,
         <span>{item.kind === "pomodoro" ? "Focus intervals" : "Deep Work"}</span>
         {previousDay && <button type="button" disabled={busy || !ready || active} onClick={() => void run(() => update({ ...item, scheduledDate: today, position: MAX_QUEUE_ITEMS }), "Task moved to today")}>Move to today</button>}
         <button type="button" disabled={busy || !ready || active} onClick={() => { setEditing(item); setAdding(false); }}>Edit</button>
-        <button type="button" className="danger-action" disabled={busy || !ready || active} onClick={() => {
-          if (window.confirm(`Remove “${item.title}” from the queue? Its focus history will be kept.`)) void run(() => onChange(items.filter((entry) => entry.id !== item.id)), "Task removed");
-        }}>Remove</button>
+        <button type="button" className="danger-action" disabled={busy || !ready || active} onClick={() => setDeleting(item)}>Delete task</button>
       </div>
     </article>;
   };
@@ -90,6 +90,14 @@ export default function TodayQueue({ items, sessions, projects, today, activeId,
       {completed.length > 0 && <details className="queue-section" open><summary>Completed today · {completed.length}</summary><div className="queue-list">{completed.map((item) => renderItem(item))}</div></details>}
       {earlier.length > 0 && <details className="queue-section"><summary>Unfinished from earlier · {earlier.length}</summary><p className="queue-hint">Move a task to today to continue it. Its progress stays with it.</p><div className="queue-list">{earlier.map((item) => renderItem(item, true))}</div></details>}
     </div>
+    {deleting && <DeletionConfirmation title="Delete this queued task?" confirmLabel="Delete task" errorMessage="Could not delete this task."
+      description={<><p className="deletion-target">{deleting.title}</p><p>This permanently deletes this task from the queue. Its focus history and saved thoughts are kept. This cannot be undone.</p></>}
+      onCancel={() => setDeleting(null)} onConfirm={async () => {
+        if (deleting.id === activeId) throw new Error("End the active session before deleting its task.");
+        await onChange(items.filter((entry) => entry.id !== deleting.id));
+        if (editing?.id === deleting.id) setEditing(null);
+        setNotice("Task deleted. Focus history kept.");
+      }} />}
   </section>;
 }
 
