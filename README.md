@@ -151,8 +151,11 @@ in the full HUD during a session.
   completed tasks with the same checkbox.
 - After Deep Work, choose to continue, mark the task done, switch to the next
   unfinished task in today’s order, or end the session. Focus intervals preserve
-  their normal short/long breaks and offer this choice after the break, even
-  when automatic work-start is enabled. Automatic break-start still applies.
+  their normal short/long breaks. With Auto-start focus enabled, the same
+  unfinished task continues automatically after either break, even beyond its
+  estimated session count. With it disabled, choose what to do next. Done or
+  removed tasks always require a choice; another task is never selected
+  automatically. Automatic break-start still applies.
 - Unfinished tasks stay under **Unfinished from earlier** after midnight. Move
   them to today to keep their progress. Removing a task keeps its focus history.
 - Queue items and their history links are stored locally and included in v4

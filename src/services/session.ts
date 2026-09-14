@@ -1,3 +1,4 @@
+import type { DailyQueueItem } from "./taskQueue";
 import { SessionKind } from "./database";
 
 export type SessionPhase = "work" | "break";
@@ -66,7 +67,9 @@ export function transitionSessionPhase(plan: SessionPlan, phase: SessionPhase, s
   };
 }
 
-/** Queued tasks always offer an explicit choice after a break. */
-export function shouldAutoStartWork(plan: SessionPlan, enabled: boolean) {
-  return enabled && !plan.queueItemId;
+/** Continue the same unfinished task; estimates never determine completion. */
+export function shouldAutoStartWork(plan: SessionPlan, enabled: boolean, item?: Pick<DailyQueueItem, "id" | "completedAt">) {
+  if (!enabled) return false;
+  if (!plan.queueItemId) return true;
+  return item?.id === plan.queueItemId && !item.completedAt;
 }

@@ -117,6 +117,7 @@ export default function App() {
 
   const [queueItems, setQueueItems] = useState<DailyQueueItem[]>([]);
   const [queueReady, setQueueReady] = useState(false);
+  const [queueSaving, setQueueSaving] = useState(false);
   const queueWriteRef = useRef(false);
   const queueTransitionRef = useRef(false);
   const [today, setToday] = useState(localDay);
@@ -129,9 +130,9 @@ export default function App() {
   const changeQueue = async (items: DailyQueueItem[]) => {
     if (queueWriteRef.current) throw new Error("A queue change is still saving. Please try again.");
     if (!queueReady) throw new Error("Load the queue before making changes.");
-    queueWriteRef.current = true;
+    queueWriteRef.current = true; setQueueSaving(true);
     try { const normalized = normalizeQueue(items); await saveQueue(normalized); setQueueItems(normalized); }
-    finally { queueWriteRef.current = false; }
+    finally { queueWriteRef.current = false; setQueueSaving(false); }
   };
   const [projects, setProjects] = useState<ProjectRecord[]>([]);
   const [completion, setCompletion] = useState<Completion | null>(null);
@@ -766,6 +767,8 @@ export default function App() {
 
   useEffect(() => {
     if (!activePlan || state.status !== "finished") return;
+    // Resolve any pending queue write before deciding whether its task is still open.
+    if (activePlan.phase === "break" && activePlan.queueItemId && (!queueReady || queueSaving)) return;
     const key = `${activePlan.startedAt}:${activePlan.phase}`;
     if (completionKeyRef.current === key) return;
     completionKeyRef.current = key;
@@ -832,13 +835,16 @@ export default function App() {
       } else {
         if (activePlan.queueItemId) setView((current) => current === "dashboard" ? current : "hud");
         if (soundSettings.current.sound && soundSettings.current.transitionSound) void playChime(soundSettings.current.volume, "break");
-        void notify(activePlan.breakKind === "long" ? "Long break finished" : "Break finished", shouldAutoStartWork(activePlan, settings.autoStartWork) ? "Your next focus cycle is starting." : "Ready for your next focus cycle? Start it when you’re ready.", settings.notifications);
-        if (shouldAutoStartWork(activePlan, settings.autoStartWork)) startPhase("work");
+        const currentTask = queueItems.find(item => item.id === activePlan.queueItemId);
+        const autoStart = shouldAutoStartWork(activePlan, settings.autoStartWork, currentTask);
+        const needsNewTask = activePlan.queueItemId && (!currentTask || currentTask.completedAt);
+        void notify(activePlan.breakKind === "long" ? "Long break finished" : "Break finished", autoStart ? "Your next focus cycle is starting." : needsNewTask ? "Choose what to work on next. Your previous task is done or no longer in the queue." : "Ready for your next focus cycle? Start it when you’re ready.", settings.notifications);
+        if (autoStart) startPhase("work");
         else setCompletion({ phase: "break", title: activePlan.breakKind === "long" ? "Long break finished" : "Break finished", body: `Ready for focus cycle ${activePlan.cycle + 1}?` });
       }
     };
     complete();
-  }, [activePlan, refreshSessions, sessions, settings, showStatus, startPhase, state.status, state.targetMs]);
+  }, [activePlan, queueItems, queueReady, queueSaving, refreshSessions, sessions, settings, showStatus, startPhase, state.status, state.targetMs]);
 
   useEffect(() => {
     if (!activePlan || !isFocusReminderDue(state, activePlan.phase, settings.fiveMinuteWarning)) return;
@@ -1217,12 +1223,12 @@ export default function App() {
     onDelete={async (id) => { await deleteCapture(id); setCaptures((previous) => previous.filter((item) => item.id !== id)); }}
     onConvert={async (capture, task) => {
       if (!queueReady || queueWriteRef.current) throw new Error("Wait for the task queue to finish loading or saving.");
-      queueWriteRef.current = true;
+      queueWriteRef.current = true; setQueueSaving(true);
       try {
         await convertCapture(capture.id, task);
         const [queue, thoughts] = await Promise.all([getQueue(), getCaptures()]);
         setQueueItems(queue); setCaptures(thoughts);
-      } finally { queueWriteRef.current = false; }
+      } finally { queueWriteRef.current = false; setQueueSaving(false); }
     }}
   />;
   if (view === "saved") return <main className="app-shell app-shell--workspace" style={shellStyle}>{savedThoughts}</main>;
@@ -1280,7 +1286,7 @@ export default function App() {
   if (view === "settings") return <main className="app-shell app-shell--settings" style={shellStyle}><SettingsPanel settings={settings} clickThroughShortcutAvailable={clickThroughShortcutAvailable} onChange={changeSettings} onClose={() => setView("hud")} onDragStart={dragStart} onShortcutRecordingChange={setShortcutRecording} notices={errorNotices} /></main>;
 
   const captureButton = <button type="button" className="session-capture" title="Save a thought for later" aria-label="Save a thought for later" onClick={() => void openCapture()}><Icon name="capture" /></button>;
-  const displayName = activePlan?.task || sessionName;
+  const displayName = activePlan ? activePlan.task : sessionName;
   const statusLabel = activePlan?.phase === "break" && state.status === "running" ? "RECHARGING" : state.status === "running" ? "WORKING" : state.status === "paused" ? "PAUSED" : state.status === "finished" ? "COMPLETE" : "READY";
 
   const configuredSize = settings.displayMode === "compact" ? "small" : settings.size;
@@ -1331,7 +1337,7 @@ export default function App() {
             setHudPopover(null);
           }}
         /> : <>
-        {activePlan ? <div className="active-intent"><ScrollingName className="active-intent__project" text={activePlan.project || "FOCUS SESSION"} /><div className="session-name-row"><ScrollingName className="active-intent__task" text={displayName || "Deep Work"} />{captureButton}</div></div> : <div className="session-field session-name-row"><label><span className="sr-only">Session name</span><input value={sessionName} onChange={(event) => setSessionName(event.target.value)} maxLength={80} placeholder="What are you focusing on?" /></label>{captureButton}</div>}
+        {activePlan ? <div className="active-intent"><ScrollingName className="active-intent__project" text={activePlan.project || "FOCUS SESSION"} /><div className="session-name-row"><ScrollingName className="active-intent__task" text={displayName.trim() ? displayName : "Untitled task"} />{captureButton}</div></div> : <div className="session-field session-name-row"><label><span className="sr-only">Session name</span><input value={sessionName} onChange={(event) => setSessionName(event.target.value)} maxLength={80} placeholder="What are you focusing on?" /></label>{captureButton}</div>}
         <Timer state={state} sessionName={displayName} sessionSummary={sessionProgress(activePlan, state, progressRecords)} endingSoon={isFocusReminderDue(state, activePlan?.phase, settings.fiveMinuteWarning)} />
         {!activePlan && <div className="presets" aria-label="Quick start presets">{[25, 50, 90, 120].map((minutes) => <button key={minutes} onClick={() => startPlan({ kind: "deep-work", workMinutes: minutes, breakMinutes: settings.pomodoroBreakMinutes, phase: "work", project: "", task: sessionName, startedAt: new Date().toISOString(), cycle: 1 })}>{minutes === 120 ? "2 hr" : `${minutes} min`}</button>)}<button onClick={() => setCustomPresetOpen((open) => !open)}>Custom</button></div>}
         {customPresetOpen && !activePlan && <form className="custom-preset" onSubmit={(event) => { event.preventDefault(); startPlan({ kind: "deep-work", workMinutes: Math.max(1, customMinutes), breakMinutes: settings.pomodoroBreakMinutes, phase: "work", project: "", task: sessionName, startedAt: new Date().toISOString(), cycle: 1 }); setCustomPresetOpen(false); }}><input aria-label="Custom duration in minutes" type="number" min="1" max="1440" value={customMinutes} onChange={(event) => setCustomMinutes(Number(event.target.value))} autoFocus /><span>min</span><button type="submit">Start</button></form>}
@@ -1379,7 +1385,7 @@ export default function App() {
       {reminderOpen && reminderUI}
       {captureOpen && <DistractionCaptureInput text={captureDraft.text} busy={captureBusy} error={captureError} onChange={(text) => { captureActivityRef.current = performance.now(); setCaptureDraft((previous) => previous ? { ...previous, text } : previous); }} onSave={() => void commitCapture()} onCancel={closeCapture} />}
       {!captureOpen && (completion && activePlan?.queueItemId && completion.phase !== "save-error" ? <QueueCompletion
-        plan={activePlan} item={queueItems.find((item) => item.id === activePlan.queueItemId)} next={nextQueueItem(queueItems, activePlan.queueItemId, today)} sessions={sessions}
+        autoStartFocus={settings.autoStartWork} plan={activePlan} item={queueItems.find((item) => item.id === activePlan.queueItemId)} next={nextQueueItem(queueItems, activePlan.queueItemId, today)} sessions={sessions}
         onDone={async () => { await changeQueue(queueItems.map((item) => item.id === activePlan.queueItemId ? { ...item, completedAt: new Date().toISOString() } : item)); }}
         onContinue={async () => { const item = queueItems.find((item) => item.id === activePlan.queueItemId); if (item) await startQueueTask(item, true); }}
         onNext={async () => { const item = nextQueueItem(queueItems, activePlan.queueItemId, localDay()); if (item) await startQueueTask(item, true); }}

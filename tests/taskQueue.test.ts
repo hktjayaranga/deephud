@@ -122,11 +122,48 @@ describe("queue completion choices", () => {
     expect(markup("work", "deep-work")).toContain("Switch to next task</button>");
     expect(markup("break", "pomodoro", true)).not.toContain("Continue this task</button>");
   });
-  it("requires a choice for queued work even with auto-start enabled", () => {
-    const queued = queuePlan(item(), 5);
+  it("auto-starts only the same unfinished task when enabled", () => {
+    const current = item();
+    const queued = transitionSessionPhase(queuePlan(current, 5), "break");
+    expect(shouldAutoStartWork(queued, true, current)).toBe(true);
+    expect(shouldAutoStartWork(queued, false, current)).toBe(false);
+    expect(shouldAutoStartWork(queued, true, { ...current, completedAt: "2026-09-12T10:00:00Z" })).toBe(false);
     expect(shouldAutoStartWork(queued, true)).toBe(false);
-    expect(shouldAutoStartWork(queued, false)).toBe(false);
+    expect(shouldAutoStartWork(queued, true, item("different-task"))).toBe(false);
     expect(shouldAutoStartWork({ ...queued, queueItemId: undefined }, true)).toBe(true);
+    expect(shouldAutoStartWork({ ...queued, queueItemId: undefined }, false)).toBe(false);
+  });
+  it("automatically continues beyond estimates through short and long breaks without changing tasks", async () => {
+    const current = item("task-a", { estimatedSessions: 1 });
+    let plan = { ...queuePlan(current, 5), workSessionId: "continuous", completedFocusCycles: 0, cyclesBeforeLongBreak: 2, longBreakMinutes: 20 };
+    for (let cycle = 1; cycle <= 4; cycle++) {
+      await saveSession(record({ workSessionId: "continuous", startedAt: `2026-09-12T0${cycle}:00:00Z` }));
+      const rest = transitionSessionPhase(completeFocusCycle(plan), "break", `2026-09-12T0${cycle}:25:00Z`);
+      expect(rest.breakKind).toBe(cycle % 2 === 0 ? "long" : "short");
+      expect(shouldAutoStartWork(rest, true, current)).toBe(true);
+      const next = transitionSessionPhase(rest, "work", `2026-09-12T0${cycle}:45:00Z`);
+      expect(next).toMatchObject({ queueItemId: current.id, workSessionId: "continuous", task: current.title, workMinutes: current.focusMinutes, cycle: cycle + 1, completedFocusCycles: cycle });
+      plan = next as typeof plan;
+    }
+    expect(queueProgress(current.id, await getSessions()).completedSessions).toBe(4);
+    expect(current.completedAt).toBeNull();
+  });
+  it("explains automatic continuation before the break", () => {
+    const html = renderToStaticMarkup(createElement(QueueCompletion, {
+      plan: queuePlan(item(), 5), item: item(), autoStartFocus: true, sessions: [],
+      onDone: vi.fn(), onContinue: vi.fn(), onNext: vi.fn(), onBreak: vi.fn(), onClose: vi.fn(),
+    }));
+    expect(html).toContain("After the break, this task will continue automatically.");
+    expect(html).not.toContain("Choose your next task after the break.");
+  });
+  it("asks for another task when the current task has been removed", () => {
+    const html = renderToStaticMarkup(createElement(QueueCompletion, {
+      plan: transitionSessionPhase(queuePlan(item(), 5), "break"), next: item("b"), autoStartFocus: true, sessions: [],
+      onDone: vi.fn(), onContinue: vi.fn(), onNext: vi.fn(), onBreak: vi.fn(), onClose: vi.fn(),
+    }));
+    expect(html).toContain("This task is no longer in the queue.");
+    expect(html).toContain("Switch to next task</button>");
+    expect(html).not.toContain("Continue this task</button>");
   });
   it("preserves long break counters when continuing on a different task", () => {
     let plan = { ...queuePlan(item(), 5), completedFocusCycles: 3, cyclesBeforeLongBreak: 4, longBreakMinutes: 20 };

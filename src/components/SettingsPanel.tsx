@@ -156,7 +156,7 @@ export default function SettingsPanel({ settings, onChange, onClose, onDragStart
           <SettingRow label="Cycles before a long break" value="completed cycles"><input aria-label="Cycles before a long break" className="number-input" type="number" min="1" max="12" value={settings.cyclesBeforeLongBreak} onChange={(event) => onChange({ cyclesBeforeLongBreak: Math.max(1, Math.min(12, Math.round(Number(event.target.value)))) })} /></SettingRow>
           <p className="long-break-hint">Applies to new sessions. Skipped cycles do not count. Long breaks are always at least one minute longer than the short break.</p>
           <Toggle label="Auto-start breaks" checked={settings.autoStartBreak} onChange={(autoStartBreak) => onChange({ autoStartBreak })} />
-          <Toggle label="Auto-start focus" checked={settings.autoStartWork} onChange={(autoStartWork) => onChange({ autoStartWork })} />
+          <Toggle label="Auto-start focus" hint="Start the next focus block after a break, continuing the same unfinished queued task. Done or removed tasks require a choice." checked={settings.autoStartWork} onChange={(autoStartWork) => onChange({ autoStartWork })} />
         </SettingsGroup>
 
         <SettingsGroup title="Alerts">

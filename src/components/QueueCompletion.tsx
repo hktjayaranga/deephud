@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { DailyQueueItem, queueProgress } from "../services/taskQueue";
 import { SessionRecord } from "../services/database";
-import { SessionPlan, nextBreak } from "../services/session";
+import { SessionPlan, nextBreak, shouldAutoStartWork } from "../services/session";
 
 interface Props {
   plan: SessionPlan;
+  autoStartFocus?: boolean;
   item?: DailyQueueItem;
   next?: DailyQueueItem;
   sessions: SessionRecord[];
@@ -14,7 +15,7 @@ interface Props {
   onBreak: () => void;
   onClose: () => Promise<void>;
 }
-export default function QueueCompletion({ plan, item, next, sessions, onDone, onContinue, onNext, onBreak, onClose }: Props) {
+export default function QueueCompletion({ plan, autoStartFocus = false, item, next, sessions, onDone, onContinue, onNext, onBreak, onClose }: Props) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const dialog = dialogRef.current!;
@@ -38,13 +39,14 @@ export default function QueueCompletion({ plan, item, next, sessions, onDone, on
     <span aria-hidden="true">{plan.phase === "break" ? "☕" : "✓"}</span>
     <h2 id="queue-completion-title">{plan.phase === "break" ? "Break complete" : "Focus block complete"}</h2>
     <div className="queue-completion__details"><b>{item?.title ?? plan.task}</b><small>{progress.completedSessions}{item ? ` of ${item.estimatedSessions} estimated` : ""} sessions · {Math.round(progress.focusSeconds / 60)} min focused{item?.completedAt && " · Task done"}</small></div>
+    {plan.phase === "break" && (!item || item.completedAt) && <p>{item ? "This task is marked done." : "This task is no longer in the queue."} Choose another task or end the session.</p>}
     {error && <p className="inline-error" role="alert">{error}</p>}
     <div className="queue-completion__actions">
       {needsBreak ? <button type="button" className="primary-action" disabled={busy} onClick={() => void run(onBreak)}>Start {nextBreak(plan).minutes}-min break</button>
         : item && !item.completedAt && <button type="button" className="primary-action" disabled={busy} onClick={() => void run(onContinue)}>Continue this task</button>}
       {item && !item.completedAt && <button type="button" disabled={busy} onClick={() => void run(onDone)}>Mark task done</button>}
     </div>
-    <p className="queue-next">{needsBreak ? "Choose your next task after the break." : next ? `Next: ${next.title}` : "No other tasks in today’s queue."}</p>
+    <p className="queue-next">{needsBreak ? shouldAutoStartWork(plan, autoStartFocus, item) ? "After the break, this task will continue automatically." : "Choose your next task after the break." : next ? `Next: ${next.title}` : "No other tasks in today’s queue."}</p>
     <div className="queue-completion__actions">
       {!needsBreak && next && <button type="button" disabled={busy} onClick={() => void run(onNext)}>Switch to next task</button>}
       <button type="button" disabled={busy} onClick={() => void run(onClose)}>Not now · End session</button>
