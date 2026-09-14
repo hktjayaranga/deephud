@@ -14,6 +14,7 @@ import { confirm, open } from "@tauri-apps/plugin-dialog";
 import { register, unregisterAll } from "@tauri-apps/plugin-global-shortcut";
 import { currentHudMonitor } from "./services/monitor";
 import Timer from "./components/Timer";
+import TimerModeLabel from "./components/TimerModeLabel";
 import ScrollingName from "./components/ScrollingName";
 import BreakActivities from "./components/BreakActivities";
 import { BreakActivityChoice, breakActivityState } from "./services/breakActivities";
@@ -1280,7 +1281,6 @@ export default function App() {
 
   const captureButton = <button type="button" className="session-capture" title="Save a thought for later" aria-label="Save a thought for later" onClick={() => void openCapture()}><Icon name="capture" /></button>;
   const displayName = activePlan?.task || sessionName;
-  const label = activePlan?.phase === "break" ? (activePlan.breakKind === "long" ? "LONG BREAK" : "BREAK") : activePlan ? "DEEP WORK" : state.mode === "stopwatch" ? "DEEP WORK" : "COUNTDOWN";
   const statusLabel = activePlan?.phase === "break" && state.status === "running" ? "RECHARGING" : state.status === "running" ? "WORKING" : state.status === "paused" ? "PAUSED" : state.status === "finished" ? "COMPLETE" : "READY";
 
   const configuredSize = settings.displayMode === "compact" ? "small" : settings.size;
@@ -1288,7 +1288,11 @@ export default function App() {
   return <main className={`app-shell size-${effectiveSize} display-${settings.displayMode}${showBreakActivities ? " break-activity-shell" : ""}`} style={shellStyle}>
     <section className={`hud hud--${state.status} ${activePlan?.phase === "break" ? "hud--break" : ""}`}>
       <header className="hud__header" data-tauri-drag-region onMouseDown={dragStart}>
-        <button className="brand" onClick={() => !activePlan && setState((previous) => initialTimerState(previous.mode === "stopwatch" ? "countdown" : "stopwatch", settings.defaultDuration))} title={activePlan ? label : "Switch timer mode"}><span className="status-dot" /><span>{label}</span></button>
+        <TimerModeLabel state={state} plan={activePlan} onSwitch={() => {
+          if (!activePlan) setState(previous => previous.status === "idle"
+            ? initialTimerState(previous.mode === "stopwatch" ? "countdown" : "stopwatch", settings.defaultDuration)
+            : previous);
+        }} />
         <div className="hud__header-actions">
           {activePlan?.phase === "break" && thoughtCount > 0 ? <button type="button" className="status-label capture-review-link" title={`${thoughtCount} thoughts saved · Review`} onClick={() => { setHudPopover(null); setView("saved"); }}>{thoughtCount} saved · Review</button> : <span className={`status-label status-label--${state.status}`}>{statusLabel}</span>}
           <button
