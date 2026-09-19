@@ -1286,7 +1286,8 @@ export default function App() {
   if (view === "settings") return <main className="app-shell app-shell--settings" style={shellStyle}><SettingsPanel settings={settings} clickThroughShortcutAvailable={clickThroughShortcutAvailable} onChange={changeSettings} onClose={() => setView("hud")} onDragStart={dragStart} onShortcutRecordingChange={setShortcutRecording} notices={errorNotices} /></main>;
 
   const captureButton = <button type="button" className="session-capture" title="Save a thought for later" aria-label="Save a thought for later" onClick={() => void openCapture()}><Icon name="capture" /></button>;
-  const displayName = activePlan ? activePlan.task : sessionName;
+  const displayName = activePlan ? activePlan.task.trim() || activePlan.project.trim() : sessionName;
+  const showTaskLabel = activePlan && (!activePlan.project.trim() || Boolean(activePlan.task.trim() && activePlan.task.trim().toLocaleLowerCase() !== activePlan.project.trim().toLocaleLowerCase()));
   const statusLabel = activePlan?.phase === "break" && state.status === "running" ? "RECHARGING" : state.status === "running" ? "WORKING" : state.status === "paused" ? "PAUSED" : state.status === "finished" ? "COMPLETE" : "READY";
 
   const configuredSize = settings.displayMode === "compact" ? "small" : settings.size;
@@ -1337,7 +1338,10 @@ export default function App() {
             setHudPopover(null);
           }}
         /> : <>
-        {activePlan ? <div className="active-intent"><ScrollingName className="active-intent__project" text={activePlan.project || "FOCUS SESSION"} /><div className="session-name-row"><ScrollingName className="active-intent__task" text={displayName.trim() ? displayName : "Untitled task"} />{captureButton}</div></div> : <div className="session-field session-name-row"><label><span className="sr-only">Session name</span><input value={sessionName} onChange={(event) => setSessionName(event.target.value)} maxLength={80} placeholder="What are you focusing on?" /></label>{captureButton}</div>}
+        {activePlan ? <div className="active-intent">
+          {showTaskLabel ? <ScrollingName className="active-intent__project" text={activePlan.project.trim() || "FOCUS SESSION"} /> : <div className="session-name-row"><ScrollingName className="active-intent__project" text={activePlan.project.trim()} />{captureButton}</div>}
+          {showTaskLabel && <div className="session-name-row"><ScrollingName className="active-intent__task" text={displayName.trim() ? displayName : "Untitled task"} />{captureButton}</div>}
+        </div> : <div className="session-field session-name-row"><label><span className="sr-only">Session name</span><input value={sessionName} onChange={(event) => setSessionName(event.target.value)} maxLength={80} placeholder="What are you focusing on?" /></label>{captureButton}</div>}
         <Timer state={state} sessionName={displayName} sessionSummary={sessionProgress(activePlan, state, progressRecords)} endingSoon={isFocusReminderDue(state, activePlan?.phase, settings.fiveMinuteWarning)} />
         {!activePlan && <div className="presets" aria-label="Quick start presets">{[25, 50, 90, 120].map((minutes) => <button key={minutes} onClick={() => startPlan({ kind: "deep-work", workMinutes: minutes, breakMinutes: settings.pomodoroBreakMinutes, phase: "work", project: "", task: sessionName, startedAt: new Date().toISOString(), cycle: 1 })}>{minutes === 120 ? "2 hr" : `${minutes} min`}</button>)}<button onClick={() => setCustomPresetOpen((open) => !open)}>Custom</button></div>}
         {customPresetOpen && !activePlan && <form className="custom-preset" onSubmit={(event) => { event.preventDefault(); startPlan({ kind: "deep-work", workMinutes: Math.max(1, customMinutes), breakMinutes: settings.pomodoroBreakMinutes, phase: "work", project: "", task: sessionName, startedAt: new Date().toISOString(), cycle: 1 }); setCustomPresetOpen(false); }}><input aria-label="Custom duration in minutes" type="number" min="1" max="1440" value={customMinutes} onChange={(event) => setCustomMinutes(Number(event.target.value))} autoFocus /><span>min</span><button type="submit">Start</button></form>}
