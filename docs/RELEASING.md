@@ -48,8 +48,26 @@ secrets from an Apple Developer account:
 - `APPLE_PASSWORD`: app-specific password
 - `APPLE_TEAM_ID`: Apple Developer team ID
 
-Tauri will then sign, notarize, and staple the macOS bundles during the native
-build. Never commit certificate files or passwords.
+The workflow forwards these secrets to Tauri only on macOS. Set all six secrets;
+partial configuration fails before the build instead of silently falling back
+to ad-hoc signing. `APPLE_SIGNING_IDENTITY` must start with
+`Developer ID Application:`. With no secrets, the workflow explicitly warns
+that the build is ad-hoc signed and Gatekeeper may block it.
+
+Tauri will sign, notarize, and staple the macOS app during the native build.
+The workflow verifies the app signature and, for credentialed builds, the
+stapled ticket and Gatekeeper acceptance. These checks run after upload to the
+draft; a failed check blocks the checksums job. Do not publish a draft whose
+build or verification failed. Never commit certificate files or passwords.
+
+Before publishing, download each DMG through a browser on the matching Mac,
+drag DeepHUD to Applications, eject the DMG, and launch from Applications.
+Confirm it opens without an unidentified-developer or damaged-app warning.
+This checks the downloaded installation with quarantine metadata, which a
+local build on the CI runner does not reproduce. Existing release downloads
+are not repaired by changing the workflow; build and publish a new version.
+
+See the [Tauri macOS signing guide](https://v2.tauri.app/distribute/sign/macos/).
 
 ## Windows signing
 

@@ -54,7 +54,17 @@ chmod +x 'DeepHUD_1.0.0_amd64.AppImage'
 
 The `.deb` installs the application icon and desktop entry. On Windows, run
 either installer and launch DeepHUD from the Start menu. On macOS, open the
-matching DMG and drag DeepHUD into Applications.
+matching DMG and drag DeepHUD into Applications, then eject the DMG and launch
+DeepHUD from Applications.
+
+Older or ad-hoc-signed macOS releases may be blocked by Gatekeeper. If the
+message only says the developer cannot be verified or Apple cannot check the
+app, and you trust the download, use **System Settings → Privacy & Security →
+Open Anyway** after the first launch attempt. See
+[Apple's instructions](https://support.apple.com/en-us/102445). If macOS says
+the app is damaged or will harm your computer, report the exact message and
+release version; do not disable Gatekeeper. Public builds need Developer ID
+signing and notarization as described in [the release guide](docs/RELEASING.md).
 
 ## Build from source
 
