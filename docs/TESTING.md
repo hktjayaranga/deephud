@@ -16,6 +16,13 @@ Before a release, perform the following checks on each supported platform:
 
 ## Release matrix
 
+On GNOME Wayland, launch with `GDK_BACKEND=wayland` inherited from the desktop
+and XWayland available. Enable Always on top and switch to another ordinary
+window: the HUD should stay visible without taking focus. Disable Always on top
+and verify the other window can cover it. Repeat after restarting from the menu
+and login startup. Also check `DEEPHUD_GDK_BACKEND=wayland` and a session without
+an X display: DeepHUD should still open, with native Wayland's overlay limitations.
+
 | Platform | Architecture | Required manual coverage |
 | --- | --- | --- |
 | Ubuntu | x64 | Wayland and X11; `.deb` and AppImage |
